@@ -202,7 +202,7 @@ bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
     const uint strandBit=1LLU<<GstrandBit;
     // The first nSA ranks start with A/C/G/T. Convert the physical positions
     // around inserted sentinel words back to STAR's post-insertion coordinates.
-    for (uint ii=0; ii<nSA; ++ii) {
+    auto packedPosition = [&](uint ii) {
         uint position=rawSA[ii];
         if (nGsj>0 && position>=nGenomeBefore) {
             if (position>junctionPhysicalLast) {
@@ -212,7 +212,34 @@ bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
                 position-=wordWidth*spacersBefore;
             };
         };
-        SA.writePacked(ii,position<nGenomeAfter ? position : ((position-nGenomeAfter)|strandBit));
+        return position<nGenomeAfter ? position : ((position-nGenomeAfter)|strandBit);
+    };
+    if (P.runThreadN==1) {
+        for (uint ii=0; ii<nSA; ++ii)
+            SA.writePacked(ii,packedPosition(ii));
+    } else {
+        // Eight packed entries always occupy an integral number of bytes. Each
+        // iteration therefore owns a disjoint byte range and can write it
+        // without PackedArray::writePacked's unaligned read-modify-write.
+        const uint groups=nSA/8;
+        #pragma omp parallel for num_threads(P.runThreadN) schedule(static)
+        for (int64 group=0; group<(int64)groups; ++group) {
+            uint128 buffer=0;
+            uint bufferBits=0;
+            char *out=SA.charArray+(uint)group*SA.wordLength;
+            uint outByte=0;
+            for (uint entry=0; entry<8; ++entry) {
+                buffer|=(uint128)packedPosition((uint)group*8+entry)<<bufferBits;
+                bufferBits+=SA.wordLength;
+                while (bufferBits>=8) {
+                    out[outByte++]=(char)(buffer&0xff);
+                    buffer>>=8;
+                    bufferBits-=8;
+                };
+            };
+        };
+        for (uint ii=groups*8; ii<nSA; ++ii)
+            SA.writePacked(ii,packedPosition(ii));
     };
 
     if (junctionsInSort) {
