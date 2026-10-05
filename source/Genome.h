@@ -9,6 +9,7 @@
 #include "SuperTranscriptome.h"
 
 class GTF;
+class SjdbClass;
 
 class Genome {
 private:
@@ -78,7 +79,7 @@ public:
     //void consensusSequence(); DEPRECATED
     
     void genomeGenerate();
-    void genomeGenerateSA();
+    bool genomeGenerateSA(SjdbClass &sjdbLoci);
     void writeChrInfo(const string dirOut);
     void concatenateChromosomes(const vector<vector<uint8>> &vecSeq, const vector<string> &vecName, const uint64 padBin);
     void writeGenomeSequence(const string dirOut);

@@ -209,8 +209,9 @@ void Genome::genomeGenerate() {
     *P.inOut->logStdOut  << timeMonthDayTime(rawTime) <<" ... starting to sort Suffix Array. This may take a long time...\n" <<flush;
 
 
+    bool junctionsInSort=false;
     if (pGe.gGenerateMethod=="libsais") {
-        genomeGenerateSA();
+        junctionsInSort=genomeGenerateSA(sjdbLoci);
     } else {//sort SA chunks
 
         for (uint ii=0;ii<nGenome;ii++) {//re-fill the array backwards for sorting
@@ -357,8 +358,9 @@ void Genome::genomeGenerate() {
 
     genomeSAindex(G, SA, P, SAi, *this);
 
-    sjdbN=0;
-    if (P.sjdbInsert.yes) {//insert junctions
+    if (!junctionsInSort)
+        sjdbN=0;
+    if (P.sjdbInsert.yes && !junctionsInSort) {//insert junctions
         P.sjdbInsert.outDir=pGe.gDir;
         P.twoPass.pass2=false;
 
