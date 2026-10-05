@@ -3,6 +3,7 @@
 #include "SjdbClass.h"
 #include "sjdbPrepare.h"
 #include <memory>
+#include <unistd.h>
 #define LIBSAIS_OPENMP
 #include "libsais/include/libsais64.h"
 
@@ -174,13 +175,19 @@ bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
         text[reverseEnd]=GENOME_spacingChar+nChrReal+(nGsj>0 ? 1 : 0)+ii;
     };
 
-    unique_ptr<int64_t[]> rawSA;
-    try {
-        rawSA.reset(new int64_t[textLength]);
-    } catch (const bad_alloc &) {
+    const size_t rawSABytes=static_cast<size_t>(textLength)*sizeof(int64_t);
+    void *rawSAMapping=mmap(NULL,rawSABytes,PROT_READ|PROT_WRITE,
+                            MAP_PRIVATE|MAP_ANON,-1,0);
+    if (rawSAMapping==MAP_FAILED) {
         exitWithError("EXITING because the libsais constructor could not allocate its suffix array\n",
                       std::cerr,P.inOut->logMain,EXIT_CODE_MEMORY_ALLOCATION,P);
     };
+    auto rawSADeleter = [rawSABytes](int64_t *pointer) {
+        if (pointer!=NULL)
+            (void)munmap(pointer,rawSABytes);
+    };
+    unique_ptr<int64_t[],decltype(rawSADeleter)> rawSA(
+            static_cast<int64_t*>(rawSAMapping),rawSADeleter);
     const int64_t result=libsais64_omp(text,rawSA.get(),textLength,0,NULL,P.runThreadN);
     if (nGsj==0) {
         for (uint ii=0; ii<nChrReal; ++ii) {
@@ -214,33 +221,52 @@ bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
         };
         return position<nGenomeAfter ? position : ((position-nGenomeAfter)|strandBit);
     };
-    if (P.runThreadN==1) {
-        for (uint ii=0; ii<nSA; ++ii)
-            SA.writePacked(ii,packedPosition(ii));
-    } else {
-        // Eight packed entries always occupy an integral number of bytes. Each
-        // iteration therefore owns a disjoint byte range and can write it
-        // without PackedArray::writePacked's unaligned read-modify-write.
-        const uint groups=nSA/8;
-        #pragma omp parallel for num_threads(P.runThreadN) schedule(static)
-        for (int64 group=0; group<(int64)groups; ++group) {
-            uint128 buffer=0;
-            uint bufferBits=0;
-            char *out=SA.charArray+(uint)group*SA.wordLength;
-            uint outByte=0;
-            for (uint entry=0; entry<8; ++entry) {
-                buffer|=(uint128)packedPosition((uint)group*8+entry)<<bufferBits;
-                bufferBits+=SA.wordLength;
-                while (bufferBits>=8) {
-                    out[outByte++]=(char)(buffer&0xff);
-                    buffer>>=8;
-                    bufferBits-=8;
+    // Eight packed entries always occupy an integral number of bytes. Each
+    // parallel iteration therefore owns a disjoint byte range and can write it
+    // without PackedArray::writePacked's unaligned read-modify-write. Bounded
+    // blocks let all readers join before complete consumed source pages are released.
+    const uint groups=nSA/8;
+    const uint groupsPerBlock=(1LLU<<29)/(8*sizeof(int64_t));
+    const long pageSizeResult=sysconf(_SC_PAGESIZE);
+    const size_t pageBytes=pageSizeResult>0 ? static_cast<size_t>(pageSizeResult) : 0;
+    auto releaseRawPages = [&](uint groupBegin, uint groupEnd) {
+        if (pageBytes==0)
+            return;
+        const size_t beginBytes=static_cast<size_t>(groupBegin)*8*sizeof(int64_t);
+        const size_t endBytes=static_cast<size_t>(groupEnd)*8*sizeof(int64_t);
+        const size_t beginPage=beginBytes/pageBytes+(beginBytes%pageBytes!=0);
+        const size_t endPage=endBytes/pageBytes;
+        if (endPage>beginPage)
+            (void)madvise(reinterpret_cast<char*>(rawSA.get())+beginPage*pageBytes,
+                          (endPage-beginPage)*pageBytes,MADV_DONTNEED);
+    };
+    for (uint groupBegin=0; groupBegin<groups; groupBegin+=groupsPerBlock) {
+        const uint groupEnd=groupBegin+min(groupsPerBlock,groups-groupBegin);
+        if (P.runThreadN==1) {
+            for (uint ii=groupBegin*8; ii<groupEnd*8; ++ii)
+                SA.writePacked(ii,packedPosition(ii));
+        } else {
+            #pragma omp parallel for num_threads(P.runThreadN) schedule(static)
+            for (int64 group=(int64)groupBegin; group<(int64)groupEnd; ++group) {
+                uint128 buffer=0;
+                uint bufferBits=0;
+                char *out=SA.charArray+(uint)group*SA.wordLength;
+                uint outByte=0;
+                for (uint entry=0; entry<8; ++entry) {
+                    buffer|=(uint128)packedPosition((uint)group*8+entry)<<bufferBits;
+                    bufferBits+=SA.wordLength;
+                    while (bufferBits>=8) {
+                        out[outByte++]=(char)(buffer&0xff);
+                        buffer>>=8;
+                        bufferBits-=8;
+                    };
                 };
             };
         };
-        for (uint ii=groups*8; ii<nSA; ++ii)
-            SA.writePacked(ii,packedPosition(ii));
+        releaseRawPages(groupBegin,groupEnd);
     };
+    for (uint ii=groups*8; ii<nSA; ++ii)
+        SA.writePacked(ii,packedPosition(ii));
 
     if (junctionsInSort) {
         if (nGsj>0) {
