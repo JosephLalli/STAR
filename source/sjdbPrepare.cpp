@@ -193,11 +193,14 @@ void sjdbPrepare (SjdbClass &sjdbLoci, Parameters &P, uint nGenomeReal, string o
     mapGen.sjDstart = new uint [mapGen.sjdbN];
     mapGen.sjAstart = new uint [mapGen.sjdbN];
 
-    ofstream sjdbInfo((outDir+"/sjdbInfo.txt").c_str());
-    ofstream sjdbList ((outDir+"/sjdbList.out.tab").c_str());
+    ofstream sjdbInfo, sjdbList;
+    if (mapGen.genomeGenerateWriteFiles) {
+        sjdbInfo.open((outDir+"/sjdbInfo.txt").c_str());
+        sjdbList.open((outDir+"/sjdbList.out.tab").c_str());
+    };
     char strandChar[3]={'.','+','-'};
     //first line is some general useful information
-    sjdbInfo << mapGen.sjdbN <<"\t"<< mapGen.sjdbOverhang <<"\n";
+    if (mapGen.genomeGenerateWriteFiles) sjdbInfo << mapGen.sjdbN <<"\t"<< mapGen.sjdbOverhang <<"\n";
     uint sjGstart=0;
 
     for (uint ii=0;ii<mapGen.sjdbN;ii++)
@@ -212,14 +215,15 @@ void sjdbPrepare (SjdbClass &sjdbLoci, Parameters &P, uint nGenomeReal, string o
         memcpy(Gsj+sjGstart+mapGen.sjdbOverhang,G+mapGen.sjAstart[ii],mapGen.sjdbOverhang);//sjdbStart contains 1-based intron loci
         sjGstart += mapGen.sjdbLength;
         Gsj[sjGstart-1]=GENOME_spacingChar;//spacing char between the sjdb seqs
+        if (mapGen.genomeGenerateWriteFiles) {
         sjdbInfo << mapGen.sjdbStart[ii] <<"\t"<< mapGen.sjdbEnd[ii] <<"\t"<<(int) mapGen.sjdbMotif[ii] <<"\t"<<(int) mapGen.sjdbShiftLeft[ii] <<"\t"<<(int) mapGen.sjdbShiftRight[ii]<<"\t"<<(int) mapGen.sjdbStrand[ii] <<"\n";
         uint chr1=mapGen.chrBin[ mapGen.sjdbStart[ii] >> P.pGe.gChrBinNbits];
         sjdbList << mapGen.chrName[chr1]<< "\t" << mapGen.sjdbStart[ii]-mapGen.chrStart[chr1] + 1 + (mapGen.sjdbMotif[ii]>0 ? 0:mapGen.sjdbShiftLeft[ii]) \
                                     << "\t"<<  mapGen.sjdbEnd[ii]-mapGen.chrStart[chr1] + 1 + (mapGen.sjdbMotif[ii]>0 ? 0:mapGen.sjdbShiftLeft[ii]) \
                                     << "\t"<< strandChar[mapGen.sjdbStrand[ii]]<<"\n";
+        };
     };
     sjdbInfo.close();
     sjdbList.close();
 
 };
-

@@ -9,6 +9,8 @@
 #include "SuperTranscriptome.h"
 
 class GTF;
+class SjdbClass;
+class Transcriptome;
 
 class Genome {
 private:
@@ -28,6 +30,8 @@ public:
     PackedArray SA,SAinsert,SApass1,SApass2;
     PackedArray SAi;
     Variation *Var;
+    bool genomeGenerateWriteFiles = true;
+    Transcriptome *transcriptome = NULL;
 
     uint nGenomeInsert, nGenomePass1, nGenomePass2, nSAinsert, nSApass1, nSApass2;
 
@@ -67,6 +71,7 @@ public:
 
     void freeMemory();
     void genomeLoad();
+    void genomeMappingParameters(const string &transformType);
     void genomeOutLoad();
     void chrBinFill();
     void chrInfoLoad();
@@ -77,7 +82,7 @@ public:
 
     //void consensusSequence(); DEPRECATED
     
-    void genomeGenerate();
+    void genomeGenerate(SjdbClass *junctions = NULL);
     void genomeGenerateSA();
     void writeChrInfo(const string dirOut);
     void concatenateChromosomes(const vector<vector<uint8>> &vecSeq, const vector<string> &vecName, const uint64 padBin);

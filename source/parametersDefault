@@ -16,6 +16,7 @@ runMode                         alignReads
     string: type of the run.
                                 alignReads             ... map reads
                                 genomeGenerate         ... generate genome files
+                                genomeGenerateAndAlign ... generate a resident index from FASTA/GTF and map reads without writing index files
                                 inputAlignmentsFromBAM ... input alignments from BAM. Presently only works with --outWigType and --bamRemoveDuplicates options.
                                 liftOver               ... lift-over of GTF files (--sjdbGTFfile) between genome assemblies using chain file(s) from --genomeChainFiles.
                                 soloCellFiltering  </path/to/raw/count/dir/>   </path/to/output/prefix>    ... STARsolo cell filtering ("calling") without remapping, followed by the path to raw count directory and output (filtered) prefix
