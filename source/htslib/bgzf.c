@@ -1754,8 +1754,11 @@ int bgzf_thread_pool(BGZF *fp, hts_tpool *pool, int qsize) {
     hts_tpool_process_ref_incr(mt->out_queue);
 
     mt->job_pool = pool_create(sizeof(bgzf_job));
-    if (!mt->job_pool)
+    if (!mt->job_pool) {
+        hts_tpool_process_ref_decr(mt->out_queue);
+        hts_tpool_process_destroy(mt->out_queue);
         goto err;
+    }
 
     pthread_mutex_init(&mt->job_pool_m, NULL);
     pthread_mutex_init(&mt->command_m, NULL);
@@ -1765,8 +1768,22 @@ int bgzf_thread_pool(BGZF *fp, hts_tpool *pool, int qsize) {
     mt->jobs_pending = 0;
     mt->free_block = fp->uncompressed_block; // currently in-use block
     mt->block_address = fp->block_address;
-    pthread_create(&mt->io_task, NULL,
-                   fp->is_write ? bgzf_mt_writer : bgzf_mt_reader, fp);
+    int thread_error = pthread_create(&mt->io_task, NULL,
+                                      fp->is_write ? bgzf_mt_writer : bgzf_mt_reader, fp);
+    if (thread_error != 0) {
+        // Without the I/O consumer a bounded process queue eventually blocks every
+        // producer.  Report attach failure and fully detach the queue instead.
+        hts_log_error("Couldn't start BGZF I/O thread: %s", strerror(thread_error));
+        pthread_cond_destroy(&mt->command_c);
+        pthread_mutex_destroy(&mt->idx_m);
+        pthread_mutex_destroy(&mt->command_m);
+        pthread_mutex_destroy(&mt->job_pool_m);
+        pool_destroy(mt->job_pool);
+        hts_tpool_process_ref_decr(mt->out_queue);
+        hts_tpool_process_destroy(mt->out_queue);
+        errno = thread_error;
+        goto err;
+    }
 
     return 0;
 
@@ -2065,34 +2082,34 @@ ssize_t bgzf_raw_write(BGZF *fp, const void *data, size_t length)
 // Helper function for tidying up fp->mt and setting errcode
 static void bgzf_close_mt(BGZF *fp) {
     if (fp->mt) {
-        if (!fp->mt->free_block)
+        mtaux_t *mt = fp->mt;
+        if (!mt->free_block)
             fp->uncompressed_block = NULL;
-        if (mt_destroy(fp->mt) < 0)
+        if (mt_destroy(mt) < 0)
             fp->errcode = BGZF_ERR_IO;
+        fp->mt = NULL;
     }
 }
 
 int bgzf_close(BGZF* fp)
 {
-    int ret, block_length;
+    int ret, block_length, close_error = 0;
     if (fp == 0) return -1;
     if (fp->is_write && fp->is_compressed) {
         if (bgzf_flush(fp) != 0) {
-            bgzf_close_mt(fp);
-            return -1;
-        }
-        fp->compress_level = -1;
-        block_length = deflate_block(fp, 0); // write an empty block
-        if (block_length < 0) {
-            hts_log_debug("Deflate block operation failed: %s", bgzf_zerr(block_length, NULL));
-            bgzf_close_mt(fp);
-            return -1;
-        }
-        if (hwrite(fp->fp, fp->compressed_block, block_length) < 0
-            || hflush(fp->fp) != 0) {
-            hts_log_error("File write failed");
-            fp->errcode |= BGZF_ERR_IO;
-            return -1;
+            close_error = -1;
+        } else {
+            fp->compress_level = -1;
+            block_length = deflate_block(fp, 0); // write an empty block
+            if (block_length < 0) {
+                hts_log_debug("Deflate block operation failed: %s", bgzf_zerr(block_length, NULL));
+                close_error = -1;
+            } else if (hwrite(fp->fp, fp->compressed_block, block_length) < 0
+                       || hflush(fp->fp) != 0) {
+                hts_log_error("File write failed");
+                fp->errcode |= BGZF_ERR_IO;
+                close_error = -1;
+            }
         }
     }
 
@@ -2109,11 +2126,11 @@ int bgzf_close(BGZF* fp)
         free(fp->gz_stream);
     }
     ret = hclose(fp->fp);
-    if (ret != 0) return -1;
+    if (ret != 0) close_error = -1;
     bgzf_index_destroy(fp);
     free(fp->uncompressed_block);
     free_cache(fp);
-    ret = fp->errcode ? -1 : 0;
+    ret = (fp->errcode || close_error) ? -1 : 0;
     free(fp);
     return ret;
 }

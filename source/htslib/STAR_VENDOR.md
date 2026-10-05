@@ -6,7 +6,10 @@ Licenses: `LICENSE` and `htscodecs/LICENSE.md`.
 
 This subset builds STAR's existing BAM I/O, the shared BGZF compression pool,
 and indexed VCF/BCF reading for embedded consensus. Runtime C sources and headers
-are unmodified. The Makefile retains the upstream static-library build rules and
+match these pins except for two required shared-pool lifecycle fixes in `bgzf.c`:
+pool-attachment failure cleanup and writer-thread creation status, and complete
+cleanup on failed close before releasing the shared pool. The Makefile retains
+the upstream static-library build rules and
 omits unused statistical, realignment, region-index, VCF utility and external
 CRAM accessor objects. Generic HTS file opening requires SAM/CRAM internals and
 their codecs even for VCF/BCF consumers. Platform-specific codec sources remain.
