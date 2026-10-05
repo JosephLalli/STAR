@@ -9,13 +9,19 @@ LDFLAGSextra ?=
 CXXFLAGSextra ?=
 
 # user may define the compiler
+CC ?= gcc
 CXX ?= g++
 
+# HTSlib supplies the link dependencies for its selected configuration.
+ifeq ($(filter clean CLEAN clean_solo,$(MAKECMDGOALS)),)
+-include htslib/htslib_static.mk
+endif
+
 # pre-defined flags
-LDFLAGS_shared := -pthread -Lhtslib -Bstatic -lhts -Bdynamic -lz
-LDFLAGS_static := -static -static-libgcc -pthread -Lhtslib -lhts -lz
-LDFLAGS_Mac :=-pthread -lz htslib/libhts.a
-LDFLAGS_Mac_static :=-pthread -lz -static-libgcc htslib/libhts.a
+LDFLAGS_shared := -pthread -Lhtslib -Bstatic -lhts -Bdynamic $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
+LDFLAGS_static := -static -static-libgcc -pthread -Lhtslib -lhts $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
+LDFLAGS_Mac :=-pthread htslib/libhts.a $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
+LDFLAGS_Mac_static :=-pthread -static-libgcc htslib/libhts.a $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
 LDFLAGS_gdb := $(LDFLAGS_shared)
 
 DATE_FMT = --iso-8601=seconds
@@ -145,8 +151,11 @@ endif
 
 htslib : htslib/libhts.a
 
-htslib/libhts.a :
-	$(MAKE) -C htslib lib-static
+htslib/htslib_static.mk :
+	$(MAKE) -C htslib htslib_static.mk CC="$(CC)"
+
+htslib/libhts.a : htslib/htslib_static.mk
+	$(MAKE) -C htslib lib-static CC="$(CC)"
 
 parametersDefault.xxd: parametersDefault
 	xxd -i parametersDefault > parametersDefault.xxd
