@@ -65,6 +65,10 @@ genomeChrSetMitochondrial   chrM M MT
     string(s):              names of the mitochondrial chromosomes. Presently only used for STARsolo statistics output/
 
 ### Genome Indexing Parameters - only used with --runMode genomeGenerate
+genomeGenerateMethod        STAR
+    string: suffix-array constructor. STAR uses the native constructor; libsais uses the bundled OpenMP sorter.
+            libsais requires genomeType Full, genomeSAsparseD 1, genomeSuffixLengthMax -1, at most 125 padded contigs, and little-endian byte order.
+
 genomeChrBinNbits           18
     int: =log2(chrBin), where chrBin is the size of the bins for genome storage: each chromosome will occupy an integer number of bins. For a genome with large number of contigs, it is recommended to scale this parameter as min(18, log2[max(GenomeLength/NumberOfReferences,ReadLength)]).
 

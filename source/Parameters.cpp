@@ -42,6 +42,7 @@ Parameters::Parameters() {//initalize parameters info
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeFastaFiles", &pGe.gFastaFiles));
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeChainFiles", &pGe.gChainFiles));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeSAindexNbases", &pGe.gSAindexNbases));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "genomeGenerateMethod", &pGe.gGenerateMethod));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeChrBinNbits", &pGe.gChrBinNbits));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeSAsparseD", &pGe.gSAsparseD));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeSuffixLengthMax", &pGe.gSuffixLengthMax));
@@ -580,6 +581,10 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     };
 
     runMode=runModeIn[0];
+    if (pGe.gGenerateMethod!="STAR" && pGe.gGenerateMethod!="libsais") {
+        exitWithError("EXITING because --genomeGenerateMethod must be STAR or libsais\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
     if (runMode=="alignReads") {
         inOut->logProgress.open((outFileNamePrefix + "Log.progress.out").c_str());
     } else if (runMode=="inputAlignmentsFromBAM") {

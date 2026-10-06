@@ -209,8 +209,9 @@ void Genome::genomeGenerate() {
     *P.inOut->logStdOut  << timeMonthDayTime(rawTime) <<" ... starting to sort Suffix Array. This may take a long time...\n" <<flush;
 
 
-//     if (false)
-    {//sort SA chunks
+    if (pGe.gGenerateMethod=="libsais") {
+        genomeGenerateSA();
+    } else {//sort SA chunks
 
         for (uint ii=0;ii<nGenome;ii++) {//re-fill the array backwards for sorting
             swap(G[2*nGenome-1-ii],G[ii]);

@@ -27,6 +27,7 @@ public:
     } transform;
     
     uint gSAindexNbases;//length of the SA pre-index strings
+    string gGenerateMethod;//suffix-array constructor
     uint gChrBinNbits;
     uint gSAsparseD;//SA sparsity
     uint gSuffixLengthMax;//maximum length of the suffixes, has to be longer than read length

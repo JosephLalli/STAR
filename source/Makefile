@@ -10,6 +10,7 @@ CXXFLAGSextra ?=
 
 # user may define the compiler
 CXX ?= g++
+CC ?= cc
 
 # pre-defined flags
 LDFLAGS_shared := -pthread -Lhtslib -Bstatic -lhts -Bdynamic -lz
@@ -50,7 +51,8 @@ CXXFLAGS_main := -O3 $(CXXFLAGS_common)
 CXXFLAGS_gdb := -O0 -g3 $(CXXFLAGS_common)
 
 ##########################################################################################################
-OBJECTS = systemFunctions.o funPrimaryAlignMark.o \
+LIBSAIS_OBJECTS = libsais/src/libsais.o libsais/src/libsais64.o
+OBJECTS = Genome_genomeGenerateSA.o $(LIBSAIS_OBJECTS) systemFunctions.o funPrimaryAlignMark.o \
 	SoloFeature_collapseUMI_Graph.o SoloFeature_collapseUMIall.o ParametersClip_initialize.o ClipMate_clip.o ClipCR4.o opal/opal.o ClipMate_clipChunk.o ClipMate_initialize.o \
 	SoloFeature_loadRawMatrix.o SoloFeature_emptyDrops_CR.o soloInputFeatureUMI.o SoloFeature_countSmartSeq.o SoloFeature_redistributeReadsByCB.o \
 	SoloFeature_quantTranscript.o SoloFeature_sumThreads.o SoloFeature_countVelocyto.o SoloFeature_countCBgeneUMI.o \
@@ -102,6 +104,9 @@ SOURCES := $(wildcard *.cpp) $(wildcard *.c)
 %.o : %.c
 	$(CXX) -c $(CPPFLAGS) $(CFLAGS) $<
 
+libsais/src/%.o : libsais/src/%.c libsais/include/libsais.h libsais/include/libsais64.h
+	$(CC) -c $(CPPFLAGS) $(CFLAGS) -fopenmp -DLIBSAIS_OPENMP -Ilibsais/include -o $@ $<
+
 all: cleanCompileInfo STAR$(SFX)
 
 opal/opal.o : opal/opal.cpp opal/opal.h
@@ -110,7 +115,7 @@ opal/opal.o : opal/opal.cpp opal/opal.h
 
 .PHONY: clean
 clean:
-	'rm' -f *.o opal/opal.o STAR STARstatic STARlong Depend.list parametersDefault.xxd
+	'rm' -f *.o opal/opal.o $(LIBSAIS_OBJECTS) STAR STARstatic STARlong Depend.list parametersDefault.xxd
 
 .PHONY: CLEAN
 CLEAN: clean
