@@ -585,7 +585,14 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         exitWithError("EXITING because --genomeGenerateMethod must be STAR or libsais\n",
                       std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
     };
-    if (runMode=="alignReads") {
+    if (runMode=="genomeGenerateAndAlign" && (pGe.gGenerateMethod!="libsais" || pGe.gLoad!="NoSharedMemory"
+            || pGe.gTypeString!="Full" || pGe.transform.type!=0 || pGe.transform.outYes || pGe.sjdbInsertSave=="All")) {
+        exitWithError("EXITING because genomeGenerateAndAlign requires --genomeGenerateMethod libsais, "
+                      "--genomeLoad NoSharedMemory, --genomeType Full, no genome transformation, and --sjdbInsertSave Basic\n",
+                      std::cerr,inOut->logMain,EXIT_CODE_PARAMETER,*this);
+    };
+    const bool alignRun=runMode=="alignReads" || runMode=="genomeGenerateAndAlign";
+    if (alignRun) {
         inOut->logProgress.open((outFileNamePrefix + "Log.progress.out").c_str());
     } else if (runMode=="inputAlignmentsFromBAM") {
         //at the moment, only wiggle output is implemented
@@ -614,7 +621,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     outSAMbool=false;
     outBAMunsorted=false;
     outBAMcoord=false;
-    if (runMode=="alignReads" && outSAMmode != "None") {//open SAM file and write header
+    if (alignRun && outSAMmode != "None") {//open SAM file and write header
         if (outSAMtype.at(0)=="BAM") {
             if (outSAMtype.size()<2) {
                 ostringstream errOut;
@@ -687,7 +694,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         };
     };
 
-    if (!outBAMcoord && outWigFlags.yes && runMode=="alignReads") {
+    if (!outBAMcoord && outWigFlags.yes && alignRun) {
         ostringstream errOut;
         errOut <<"EXITING because of fatal PARAMETER error: generating signal with --outWigType requires sorted BAM\n";
         errOut <<"SOLUTION: re-run STAR with with --outSAMtype BAM SortedByCoordinate, or, id you also need unsroted BAM, with --outSAMtype BAM SortedByCoordinate Unsorted\n";
@@ -791,9 +798,9 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     twoPass.yes=false;
     twoPass.pass2=false;
     if (twoPass.mode!="None") {//2-pass parameters
-        if (runMode!="alignReads") {
+        if (!alignRun) {
             ostringstream errOut;
-            errOut << "EXITING because of fatal PARAMETERS error: 2-pass mapping option  can only be used with --runMode alignReads\n";
+            errOut << "EXITING because of fatal PARAMETERS error: 2-pass mapping option requires --runMode alignReads or genomeGenerateAndAlign\n";
             errOut << "SOLUTION: remove --twopassMode option";
             exitWithError(errOut.str(),std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
         };
@@ -830,7 +837,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     };
 
     // openReadFiles depends on twoPass for reading SAM header
-    if (runMode=="alignReads" && pGe.gLoad!="Remove" && pGe.gLoad!="LoadAndExit") {//open reads files to check if they are present
+    if (alignRun && pGe.gLoad!="Remove" && pGe.gLoad!="LoadAndExit") {//open reads files to check if they are present
         openReadsFiles();
 
         if (readNends > 2 && pSolo.typeStr=="None") {//could have >2 mates only for Solo
@@ -840,7 +847,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
             exitWithError(errOut.str(), std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
         };
 
-        if ( runMode=="alignReads" && outReadsUnmapped=="Fastx" ) {//open unmapped reads file
+        if ( outReadsUnmapped=="Fastx" ) {//open unmapped reads file
             for (uint imate=0;imate<readNends;imate++) {
                 ostringstream ff;
                 ff << outFileNamePrefix << "Unmapped.out.mate" << imate+1;

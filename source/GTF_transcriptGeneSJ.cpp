@@ -1,4 +1,5 @@
 #include "GTF.h"
+#include "Transcriptome.h"
 #include "serviceFuns.cpp"
 #include "streamFuns.h"
 
@@ -30,6 +31,18 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
     exonN=exonLoci.size();
     qsort((void*) exonLoci.data(), exonN, sizeof(uint64)*exL, funCompareUint2);
 
+    Transcriptome *transcriptome=genome.transcriptome;
+    if (transcriptome!=NULL) {
+        transcriptome->nGe=geneID.size();
+        transcriptome->geID.resize(transcriptome->nGe);
+        transcriptome->geName.resize(transcriptome->nGe);
+        transcriptome->geBiotype.resize(transcriptome->nGe);
+        for (uint32 ig=0;ig<transcriptome->nGe;ig++) {
+            istringstream geneRow(geneID[ig]+"\t"+geneAttr[ig][0]+"\t"+geneAttr[ig][1]);
+            geneRow >> transcriptome->geID[ig] >> transcriptome->geName[ig] >> transcriptome->geBiotype[ig];
+        };
+    };
+
     {//exon-gene data structures: exon start/end/strand/gene/transcript
         //re-sort exons by exons loci
         uint64* exgeLoci=new uint64 [exonN*GTF_exgeLoci_size]; //this also contains transcripts start and end
@@ -44,20 +57,57 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
 
         qsort((void*) exgeLoci, exonN, sizeof(uint64)*GTF_exgeLoci_size, funCompareArrays<uint64,5>);
 
-        ofstream & exgeOut = ofstrOpen(dirOut+"/exonGeTrInfo.tab",ERROR_OUT,P);
-        exgeOut<<exonN<<"\n";
-        for (uint64 iex=0; iex<exonN; iex++) {
-             exgeOut<<exgeLoci[GTF_exgeExStart(iex)] <<"\t"<<  exgeLoci[GTF_exgeExEnd(iex)] <<"\t"<< exgeLoci[GTF_exgeExStrand(iex)] \
-              <<"\t"<< exgeLoci[GTF_exgeGeID(iex)] <<"\t"<< exgeLoci[GTF_exgeTrID(iex)] <<"\n"; //the last value, transript-number, is worng here since tranascripts are re-sorted later
+        if (transcriptome!=NULL && P.quant.geCount.yes) {
+            transcriptome->exG.nEx=exonN;
+            transcriptome->exG.s=new uint64[exonN];
+            transcriptome->exG.e=new uint64[exonN];
+            transcriptome->exG.eMax=new uint64[exonN];
+            transcriptome->exG.str=new uint8[exonN];
+            transcriptome->exG.g=new uint32[exonN];
+            transcriptome->exG.t=new uint32[exonN];
+            for (uint64 iex=0;iex<exonN;iex++) {
+                transcriptome->exG.s[iex]=exgeLoci[GTF_exgeExStart(iex)];
+                transcriptome->exG.e[iex]=exgeLoci[GTF_exgeExEnd(iex)];
+                transcriptome->exG.str[iex]=exgeLoci[GTF_exgeExStrand(iex)];
+                transcriptome->exG.g[iex]=exgeLoci[GTF_exgeGeID(iex)];
+                transcriptome->exG.t[iex]=exgeLoci[GTF_exgeTrID(iex)];
+            };
         };
-        exgeOut.close();
 
-        ofstream & geOut = ofstrOpen(dirOut+"/geneInfo.tab",ERROR_OUT,P);
-        geOut << geneID.size() << "\n";
-        for (uint64 ig=0; ig<geneID.size(); ig++) {//just geneID for now
-            geOut << geneID[ig] <<"\t"<< geneAttr[ig][0] <<"\t"<< geneAttr[ig][1] <<"\n";
+        if (transcriptome!=NULL && (P.quant.geneFull.yes || P.quant.geneFull_ExonOverIntron.yes)) {
+            transcriptome->geneFull.s=new uint64[transcriptome->nGe];
+            transcriptome->geneFull.e=new uint64[transcriptome->nGe];
+            transcriptome->geneFull.eMax=new uint64[transcriptome->nGe];
+            transcriptome->geneFull.g=new uint32[transcriptome->nGe];
+            transcriptome->geneFull.str=new uint8[transcriptome->nGe];
+            for (uint32 ig=0;ig<transcriptome->nGe;ig++) {
+                transcriptome->geneFull.s[ig]=-1;
+                transcriptome->geneFull.e[ig]=0;
+            };
+            for (uint64 iex=0;iex<exonN;iex++) {
+                uint32 ig=exgeLoci[GTF_exgeGeID(iex)];
+                transcriptome->geneFull.s[ig]=min(transcriptome->geneFull.s[ig],exgeLoci[GTF_exgeExStart(iex)]);
+                transcriptome->geneFull.e[ig]=max(transcriptome->geneFull.e[ig],exgeLoci[GTF_exgeExEnd(iex)]);
+                transcriptome->geneFull.str[ig]=exgeLoci[GTF_exgeExStrand(iex)];
+            };
         };
-        geOut.close();
+
+        if (genome.genomeGenerateWriteFiles) {
+            ofstream & exgeOut = ofstrOpen(dirOut+"/exonGeTrInfo.tab",ERROR_OUT,P);
+            exgeOut<<exonN<<"\n";
+            for (uint64 iex=0; iex<exonN; iex++) {
+                 exgeOut<<exgeLoci[GTF_exgeExStart(iex)] <<"\t"<<  exgeLoci[GTF_exgeExEnd(iex)] <<"\t"<< exgeLoci[GTF_exgeExStrand(iex)] \
+                  <<"\t"<< exgeLoci[GTF_exgeGeID(iex)] <<"\t"<< exgeLoci[GTF_exgeTrID(iex)] <<"\n"; //the last value, transript-number, is worng here since tranascripts are re-sorted later
+            };
+            exgeOut.close();
+
+            ofstream & geOut = ofstrOpen(dirOut+"/geneInfo.tab",ERROR_OUT,P);
+            geOut << geneID.size() << "\n";
+            for (uint64 ig=0; ig<geneID.size(); ig++) {//just geneID for now
+                geOut << geneID[ig] <<"\t"<< geneAttr[ig][0] <<"\t"<< geneAttr[ig][1] <<"\n";
+            };
+            geOut.close();
+        };
 
     };
 
@@ -83,21 +133,56 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
 
         qsort((void*) extrLoci, exonN, sizeof(uint64)*GTF_extrLoci_size, funCompareArrays<uint64,5>);
 
-        ofstream trOut ((dirOut+"/transcriptInfo.tab").c_str());
-        trOut<<transcriptID.size() << "\n";
-        ofstream exOut ((dirOut+"/exonInfo.tab").c_str());
-        exOut<<exonN<<"\n";
+        const bool transcriptData=P.quant.trSAM.yes || P.quant.gene.yes || P.quant.geneFull_Ex50pAS.yes;
+        if (transcriptome!=NULL && transcriptData) {
+            transcriptome->nTr=transcriptID.size();
+            transcriptome->nEx=exonN;
+            transcriptome->trS=new uint[transcriptome->nTr];
+            transcriptome->trE=new uint[transcriptome->nTr];
+            transcriptome->trEmax=new uint[transcriptome->nTr];
+            transcriptome->trExI=new uint32[transcriptome->nTr];
+            transcriptome->trExN=new uint16[transcriptome->nTr];
+            transcriptome->trStr=new uint8[transcriptome->nTr];
+            transcriptome->trGene=new uint32[transcriptome->nTr];
+            transcriptome->trLen=new uint32[transcriptome->nTr];
+            transcriptome->trID.resize(transcriptome->nTr);
+            transcriptome->exSE=new uint32[2*exonN];
+            transcriptome->exLenCum=new uint32[exonN];
+        };
+
+        ofstream trOut;
+        ofstream exOut;
+        if (genome.genomeGenerateWriteFiles) {
+            trOut.open((dirOut+"/transcriptInfo.tab").c_str());
+            trOut<<transcriptID.size() << "\n";
+            exOut.open((dirOut+"/exonInfo.tab").c_str());
+            exOut<<exonN<<"\n";
+        };
 
         uint64 trid=extrLoci[GTF_extrTrID(0)];
         uint64 trex=0;
+        uint64 trOutN=0;
         uint64 trstart=extrLoci[GTF_extrTrStart(0)];
         uint64 trend=extrLoci[GTF_extrTrEnd(0)];
         uint64 exlen=0;
         for (uint64 iex=0;iex<=exonN; iex++) {
             if (iex==exonN || extrLoci[GTF_extrTrID(iex)] != trid) {//start of the new transcript
                 //write out previous transcript
-                trOut << transcriptID.at(trid) <<"\t"<< extrLoci[GTF_extrTrStart(iex-1)]<<"\t"<< extrLoci[GTF_extrTrEnd(iex-1)] \
-                       <<"\t"<< trend << "\t"<< (uint64) transcriptStrand[trid]  <<"\t"<< iex-trex <<"\t"<<trex<<"\t"<<extrLoci[GTF_extrGeID(iex-1)]<<"\n";
+                if (transcriptome!=NULL && transcriptData) {
+                    transcriptome->trID[trOutN]=transcriptID.at(trid);
+                    transcriptome->trS[trOutN]=extrLoci[GTF_extrTrStart(iex-1)];
+                    transcriptome->trE[trOutN]=extrLoci[GTF_extrTrEnd(iex-1)];
+                    transcriptome->trEmax[trOutN]=trend;
+                    transcriptome->trStr[trOutN]=transcriptStrand[trid];
+                    transcriptome->trExN[trOutN]=iex-trex;
+                    transcriptome->trExI[trOutN]=trex;
+                    transcriptome->trGene[trOutN]=extrLoci[GTF_extrGeID(iex-1)];
+                    trOutN++;
+                };
+                if (genome.genomeGenerateWriteFiles) {
+                    trOut << transcriptID.at(trid) <<"\t"<< extrLoci[GTF_extrTrStart(iex-1)]<<"\t"<< extrLoci[GTF_extrTrEnd(iex-1)] \
+                           <<"\t"<< trend << "\t"<< (uint64) transcriptStrand[trid]  <<"\t"<< iex-trex <<"\t"<<trex<<"\t"<<extrLoci[GTF_extrGeID(iex-1)]<<"\n";
+                };
                 if (iex==exonN) break;
                 trid=extrLoci[GTF_extrTrID(iex)];
                 trstart=extrLoci[GTF_extrTrStart(iex)];
@@ -105,7 +190,14 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
                 trend=max(trend,extrLoci[GTF_extrTrEnd(iex-1)]);
                 exlen=0;
             };
-            exOut << extrLoci[GTF_extrExStart(iex)]-trstart <<"\t"<< extrLoci[GTF_extrExEnd(iex)]-trstart <<"\t"<< exlen <<"\n";
+            if (transcriptome!=NULL && transcriptData) {
+                transcriptome->exSE[2*iex]=extrLoci[GTF_extrExStart(iex)]-trstart;
+                transcriptome->exSE[2*iex+1]=extrLoci[GTF_extrExEnd(iex)]-trstart;
+                transcriptome->exLenCum[iex]=exlen;
+            };
+            if (genome.genomeGenerateWriteFiles) {
+                exOut << extrLoci[GTF_extrExStart(iex)]-trstart <<"\t"<< extrLoci[GTF_extrExEnd(iex)]-trstart <<"\t"<< exlen <<"\n";
+            };
             exlen+=extrLoci[GTF_extrExEnd(iex)]-extrLoci[GTF_extrExStart(iex)]+1;
         };
         trOut.close();
@@ -157,18 +249,20 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
         };
     };
 
-    ofstream sjdbList ((dirOut+"/sjdbList.fromGTF.out.tab").c_str());
-    for (uint64 ii=sjdbN1;ii<sjdbLoci.chr.size(); ii++) {
-        sjdbList << sjdbLoci.chr.at(ii)<<"\t"<< sjdbLoci.start.at(ii) << "\t"<< sjdbLoci.end.at(ii)  <<"\t"<< sjdbLoci.str.at(ii);
+    if (genome.genomeGenerateWriteFiles) {
+        ofstream sjdbList ((dirOut+"/sjdbList.fromGTF.out.tab").c_str());
+        for (uint64 ii=sjdbN1;ii<sjdbLoci.chr.size(); ii++) {
+            sjdbList << sjdbLoci.chr.at(ii)<<"\t"<< sjdbLoci.start.at(ii) << "\t"<< sjdbLoci.end.at(ii)  <<"\t"<< sjdbLoci.str.at(ii);
 
-        auto gg=sjdbLoci.gene[ii].cbegin();//iterator for genes
-        sjdbList <<"\t"<< *gg;
-        ++gg;
-        for (; gg!=sjdbLoci.gene[ii].cend(); gg++)
-            sjdbList <<","<< *gg;
-        sjdbList<<"\n";
+            auto gg=sjdbLoci.gene[ii].cbegin();//iterator for genes
+            sjdbList <<"\t"<< *gg;
+            ++gg;
+            for (; gg!=sjdbLoci.gene[ii].cend(); gg++)
+                sjdbList <<","<< *gg;
+            sjdbList<<"\n";
+        };
+        sjdbList.close();
     };
-    sjdbList.close();
 
     sjdbLoci.priority.resize(sjdbLoci.chr.size(),20);
 
@@ -178,6 +272,9 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
     time_t rawTime;
     time(&rawTime);
     P.inOut->logMain     << timeMonthDayTime(rawTime) <<" ..... finished GTF processing\n\n" <<flush;
+
+    if (transcriptome!=NULL)
+        transcriptome->initialize();
 
     return sjdbLoci.chr.size()-sjdbN1;
 };

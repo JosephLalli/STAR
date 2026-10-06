@@ -32,7 +32,7 @@ void samHeaders(Parameters &P, Genome &genomeOut, Transcriptome &transcriptomeMa
 
     genomeOut.chrNameAll=genomeOut.chrName;
     genomeOut.chrLengthAll=genomeOut.chrLength;
-    {//add exra references
+    if (genomeOut.genomeGenerateWriteFiles) {//add extra references from a disk index
         ifstream extrastream (P.pGe.gDir + "/extraReferences.txt");
         while (extrastream.good()) {
             string line1;

@@ -80,7 +80,7 @@ int main(int argInN, char *argIn[])
                           << flush;
 
     // runMode
-    if (P.runMode == "alignReads" || P.runMode == "soloCellFiltering")
+    if (P.runMode == "alignReads" || P.runMode == "genomeGenerateAndAlign" || P.runMode == "soloCellFiltering")
     {
         // continue
     }
@@ -133,7 +133,12 @@ int main(int argInN, char *argIn[])
     ////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// Genome
     Genome genomeMain(P, P.pGe);
-    genomeMain.genomeLoad();
+    SjdbClass sjdbLoci;
+    if (P.runMode=="genomeGenerateAndAlign") {
+        genomeMain.genomeGenerate(&sjdbLoci);
+    } else {
+        genomeMain.genomeLoad();
+    };
 
     if (P.pGe.transform.outYes) {
         genomeMain.Var = new Variation(P, genomeMain.chrStart, genomeMain.chrNameIndex, false);//no variation for mapGen, only for genOut
@@ -141,8 +146,6 @@ int main(int argInN, char *argIn[])
     } else {
         genomeMain.Var = new Variation(P, genomeMain.chrStart, genomeMain.chrNameIndex, P.var.yes);
     };
-
-    SjdbClass sjdbLoci;
 
     if (P.sjdbInsert.pass1) {
         Genome genomeMain1 = genomeMain; // not sure if I need to create the copy - genomeMain1 below should not be changed
@@ -171,7 +174,7 @@ int main(int argInN, char *argIn[])
 
     if (P.quant.yes)
     { // load transcriptome
-        transcriptomeMain = new Transcriptome(P);
+        transcriptomeMain = genomeMain.transcriptome==NULL ? new Transcriptome(P) : genomeMain.transcriptome;
     };
 
     // initialize Stats

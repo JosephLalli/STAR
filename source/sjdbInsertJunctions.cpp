@@ -34,7 +34,7 @@ void sjdbInsertJunctions(Parameters & P, Genome & mapGen, Genome & mapGen1, Sjdb
         sjdbLoci.priority.resize(sjdbLoci.chr.size(),0);
         time ( &rawtime );
         P.inOut->logMain << timeMonthDayTime(rawtime) << "   Loaded database junctions from the 1st pass file: " << P.twoPass.pass1sjFile <<": "<<sjdbLoci.chr.size()<<" total junctions\n\n";
-    } else if (P.runMode!="genomeGenerate") {
+    } else if (P.runMode!="genomeGenerate" && P.runMode!="genomeGenerateAndAlign") {
         //loading junctions from GTF or tab or from the saved genome is only allowed at the 1st pass
         //at the 2nd pass these are already in the sjdbLoci
         //with runMode=="genomeGenerate", the junctions from GTF and File are already loaded

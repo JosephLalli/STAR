@@ -377,6 +377,11 @@ void Genome::genomeLoad(){//allocate and load Genome
 
     Genome::loadSJDB(pGe.gDir);
 
+    genomeMappingParameters(P1.pGe.transform.typeString);
+};
+
+void Genome::genomeMappingParameters(const string &transformType)
+{
     //check and redefine some parameters
     //max intron size
     if (P.alignIntronMax==0 && P.alignMatesGapMax==0) {
@@ -433,9 +438,9 @@ void Genome::genomeLoad(){//allocate and load Genome
     };
     
         
-    if (P1.pGe.transform.typeString=="Haploid") {
+    if (transformType=="Haploid") {
         pGe.transform.type=1;
-    } else if (P1.pGe.transform.typeString=="Diploid") {
+    } else if (transformType=="Diploid") {
         pGe.transform.type=2;
     } else {//TODO check for wrong values
         pGe.transform.type=0;

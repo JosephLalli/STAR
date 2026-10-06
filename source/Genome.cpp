@@ -36,6 +36,7 @@ void Genome::freeMemory(){//free big chunks of memory used by genome and suffix 
         delete[] G1;
         G1=NULL;
         SA.deallocateArray();
+        SApass1.deallocateArray();
         SApass2.deallocateArray();
         SAi.deallocateArray();
 

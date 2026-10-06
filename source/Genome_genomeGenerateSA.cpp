@@ -23,14 +23,15 @@ void Genome::genomeGenerateSA()
                       std::cerr,P.inOut->logMain,EXIT_CODE_MEMORY_ALLOCATION,P);
     };
     const uint64 textLength=2*nGenome+1;
+    const uint64 packedBytes=!genomeGenerateWriteFiles && P.twoPass.yes ? SApass2.lengthByte : SApass1.lengthByte;
     const uint64 availableRAM=P.limitGenomeGenerateRAM>nG1alloc ? P.limitGenomeGenerateRAM-nG1alloc : 0;
     // The pinned library's per-thread state/cache and aligned buckets fit in this allowance.
     const uint64 scratchBytes=((uint64)P.runThreadN+1)*(1LLU<<19);
     // Sort: 64-bit SA and libsais' worst-case 2*n workspace, with G resident.
     // Pack: the raw and packed arrays coexist after libsais releases its workspace.
     if (scratchBytes>availableRAM || textLength>(availableRAM-scratchBytes)/10
-            || SApass1.lengthByte>availableRAM
-            || textLength>(availableRAM-SApass1.lengthByte)/sizeof(int64_t)) {
+            || packedBytes>availableRAM
+            || textLength>(availableRAM-packedBytes)/sizeof(int64_t)) {
         exitWithError("EXITING because --limitGenomeGenerateRAM is too small for the libsais constructor\n"
                       "SOLUTION: increase --limitGenomeGenerateRAM or use --genomeGenerateMethod STAR\n",
                       std::cerr,P.inOut->logMain,EXIT_CODE_MEMORY_ALLOCATION,P);
@@ -69,7 +70,12 @@ void Genome::genomeGenerateSA()
         exitWithError(errOut.str(),std::cerr,P.inOut->logMain,
                       result==-2 ? EXIT_CODE_MEMORY_ALLOCATION : EXIT_CODE_INCONSISTENT_DATA,P);
     };
-    SApass1.allocateArray();
+    if (!genomeGenerateWriteFiles && P.twoPass.yes) {
+        SApass2.allocateArray();
+        SApass1.pointArray(SApass2.charArray+SApass2.lengthByte-SApass1.lengthByte);
+    } else {
+        SApass1.allocateArray();
+    };
     SA.pointArray(SApass1.charArray+SApass1.lengthByte-SA.lengthByte);
     const uint strandBit=1LLU<<GstrandBit;
     // A/C/G/T-starting suffixes occupy the first nSA ranks: all other symbols exceed 3.
