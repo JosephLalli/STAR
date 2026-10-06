@@ -112,6 +112,7 @@ Parameters::Parameters() {//initalize parameters info
     parArray.push_back(new ParameterInfoVector <string>     (-1, -1, "outSAMheaderPG", &outSAMheaderPG));
     parArray.push_back(new ParameterInfoScalar <string>     (-1, -1, "outSAMheaderCommentFile", &outSAMheaderCommentFile));
     parArray.push_back(new ParameterInfoScalar <int>        (-1, -1, "outBAMcompression", &outBAMcompression));
+    parArray.push_back(new ParameterInfoScalar <int>        (-1, -1, "outBAMcompressionThreads", &outBAMcompressionThreads));
     parArray.push_back(new ParameterInfoScalar <int>        (-1, -1, "outBAMsortingThreadN", &outBAMsortingThreadN));
     parArray.push_back(new ParameterInfoScalar <uint32>        (-1, -1, "outBAMsortingBinsN", &outBAMsortingBinsN));
     parArray.push_back(new ParameterInfoVector <string>     (-1, -1, "outSAMfilter", &outSAMfilter.mode));
@@ -717,6 +718,10 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         errOut <<"EXITING: fatal input ERROR: runThreadN must be >0, user-defined runThreadN="<<runThreadN<<"\n";
         exitWithError(errOut.str(), std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
     };
+    if (outBAMcompressionThreads < -1) {
+        exitWithError("EXITING: --outBAMcompressionThreads must be -1 (auto), 0 (synchronous), or positive\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
 
     //
     if (outFilterType=="BySJout" && outSAMorder=="PairedKeepInputOrder") {
@@ -947,6 +952,15 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
                 exitWithError(errOut.str(),std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
             };
         };
+    };
+    const int streamedBAMs=(outBAMunsorted ? 1 : 0) + (quant.trSAM.bamYes ? 1 : 0);
+    if (streamedBAMs>0 && outBAMcompressionThreads>0
+            && outBAMcompressionThreads>=runThreadN-streamedBAMs) {
+        ostringstream errOut;
+        errOut << "EXITING: --outBAMcompressionThreads=" << outBAMcompressionThreads
+               << " plus " << streamedBAMs << " BGZF writer helper(s) must leave at least one of --runThreadN="
+               << runThreadN << " threads for mapping\n";
+        exitWithError(errOut.str(), std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
     };
     //these may be set in STARsolo or in SAM attributes
     quant.geneFull.yes=false;

@@ -4,6 +4,7 @@
 #include "IncludeDefine.h"
 #include SAMTOOLS_BGZF_H
 #include "Parameters.h"
+#include <pthread.h>
 
 class BAMoutput {//
 public:
@@ -13,7 +14,7 @@ public:
     void coordBins ();
     void coordFlush ();
     //unsorted output
-    BAMoutput (BGZF *bgzfBAMin, Parameters &Pin);
+    BAMoutput (BGZF *bgzfBAMin, pthread_mutex_t *bgzfMutexIn, Parameters &Pin);
     void unsortedOneAlign (char *bamIn, uint bamSize, uint bamSize2);
     void unsortedFlush ();
     void coordUnmappedPrepareBySJout();
@@ -30,6 +31,7 @@ private:
     uint64 *binBytes, binBytes1;//number of bytes currently written to each bin
     ofstream **binStream;//output streams for each bin
     BGZF *bgzfBAM;
+    pthread_mutex_t *bgzfMutex;
     Parameters &P;
     string bamDir;
 };

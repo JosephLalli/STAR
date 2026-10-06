@@ -1,6 +1,7 @@
 #include "ReadAlignChunk.h"
 #include <pthread.h>
 #include "ErrorWarning.h"
+#include "GlobalVariables.h"
 
 ReadAlignChunk::ReadAlignChunk(Parameters& Pin, Genome &genomeIn, Transcriptome *TrIn, int iChunk) : P(Pin), mapGen(genomeIn) {//initialize chunk
 
@@ -40,7 +41,7 @@ ReadAlignChunk::ReadAlignChunk(Parameters& Pin, Genome &genomeIn, Transcriptome 
     };
 
     if (P.outBAMunsorted) {
-        chunkOutBAMunsorted = new BAMoutput (P.inOut->outBAMfileUnsorted, P);
+        chunkOutBAMunsorted = new BAMoutput (P.inOut->outBAMfileUnsorted, &g_threadChunks.mutexOutSAM, P);
         RA->outBAMunsorted = chunkOutBAMunsorted;
     } else {
         chunkOutBAMunsorted=NULL;
@@ -56,7 +57,8 @@ ReadAlignChunk::ReadAlignChunk(Parameters& Pin, Genome &genomeIn, Transcriptome 
     };
 
     if ( P.quant.trSAM.bamYes ) {
-        chunkOutBAMquant = new BAMoutput (P.inOut->outQuantBAMfile,P);
+        pthread_mutex_t *quantBAMmutex=P.outBAMcompressionThreads>0 ? &g_threadChunks.mutexOutBAM1 : &g_threadChunks.mutexOutSAM;
+        chunkOutBAMquant = new BAMoutput (P.inOut->outQuantBAMfile,quantBAMmutex,P);
         RA->outBAMquant = chunkOutBAMquant;
     } else {
         chunkOutBAMquant=NULL;

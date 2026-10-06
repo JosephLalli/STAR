@@ -31,6 +31,7 @@
 #include "twoPassRunPass1.h"
 
 #include "htslib/htslib/sam.h"
+#include "htslib/htslib/thread_pool.h"
 #include "parametersDefault.xxd"
 
 void usage(int usageType)
@@ -187,6 +188,47 @@ int main(int argInN, char *argIn[])
     // SAM headers
     samHeaders(P, *genomeMain.genomeOut.g, *transcriptomeMain);
 
+    hts_tpool *bamCompressionPool=NULL;
+    const int bamStreamN=(P.inOut->outBAMfileUnsorted!=NULL ? 1 : 0)
+                        +(P.inOut->outQuantBAMfile!=NULL ? 1 : 0);
+    int bamCompressionThreads=P.outBAMcompressionThreads;
+    if (bamStreamN>0 && bamCompressionThreads!=0) {
+        if (bamCompressionThreads==-1) {
+            bamCompressionThreads=min(6,min(P.runThreadN/4,
+                max(0,P.runThreadN-bamStreamN-1)));
+        };
+        P.outBAMcompressionThreads=bamCompressionThreads;
+
+        if (bamCompressionThreads>0) {
+            bamCompressionPool=hts_tpool_init(bamCompressionThreads);
+            bool bamCompressionAttachError=bamCompressionPool==NULL;
+            if (!bamCompressionAttachError && P.inOut->outBAMfileUnsorted!=NULL
+                    && bgzf_thread_pool(P.inOut->outBAMfileUnsorted,bamCompressionPool,0)!=0) {
+                bamCompressionAttachError=true;
+            };
+            if (!bamCompressionAttachError && P.inOut->outQuantBAMfile!=NULL
+                    && bgzf_thread_pool(P.inOut->outQuantBAMfile,bamCompressionPool,0)!=0) {
+                bamCompressionAttachError=true;
+            };
+
+            if (bamCompressionAttachError) {
+                if (P.inOut->outBAMfileUnsorted!=NULL) {
+                    bgzf_flush(P.inOut->outBAMfileUnsorted);
+                    bgzf_close(P.inOut->outBAMfileUnsorted);
+                };
+                if (P.inOut->outQuantBAMfile!=NULL) {
+                    bgzf_flush(P.inOut->outQuantBAMfile);
+                    bgzf_close(P.inOut->outQuantBAMfile);
+                };
+                if (bamCompressionPool!=NULL)
+                    hts_tpool_destroy(bamCompressionPool);
+                exitWithError("EXITING because STAR could not initialize pooled BAM compression\n",
+                              std::cerr, P.inOut->logMain, EXIT_CODE_FILE_WRITE, P);
+            };
+            P.runThreadN-=bamCompressionThreads+bamStreamN;
+        };
+    };
+
     // initialize chimeric parameters here - note that chimeric parameters require samHeader
     P.pCh.initialize(&P);
 
@@ -222,17 +264,27 @@ int main(int argInN, char *argIn[])
         mapThreadsSpawn(P, RAchunk);
     };
 
-    // close some BAM files
+    int unsortedBAMcloseStatus=0;
     if (P.inOut->outBAMfileUnsorted != NULL)
     {
-        bgzf_flush(P.inOut->outBAMfileUnsorted);
-        bgzf_close(P.inOut->outBAMfileUnsorted);
+        if (bgzf_flush(P.inOut->outBAMfileUnsorted)!=0)
+            unsortedBAMcloseStatus=-1;
+        if (bgzf_close(P.inOut->outBAMfileUnsorted)!=0)
+            unsortedBAMcloseStatus=-1;
     };
+    int quantBAMcloseStatus=0;
     if (P.inOut->outQuantBAMfile != NULL)
     {
-        bgzf_flush(P.inOut->outQuantBAMfile);
-        bgzf_close(P.inOut->outQuantBAMfile);
+        if (bgzf_flush(P.inOut->outQuantBAMfile)!=0)
+            quantBAMcloseStatus=-1;
+        if (bgzf_close(P.inOut->outQuantBAMfile)!=0)
+            quantBAMcloseStatus=-1;
     };
+    if (bamCompressionPool!=NULL)
+        hts_tpool_destroy(bamCompressionPool);
+    if (unsortedBAMcloseStatus!=0 || quantBAMcloseStatus!=0)
+        exitWithError("EXITING because STAR failed to close a streamed BAM output\n",
+                      std::cerr, P.inOut->logMain, EXIT_CODE_FILE_WRITE, P);
 
     if (P.outBAMcoord && P.limitBAMsortRAM == 0)
     { // make it equal ot the genome size
