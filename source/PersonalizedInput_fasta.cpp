@@ -399,7 +399,7 @@ void PersonalizedInput::appendFasta(Genome &genome)
     genome.chrStart.push_back(position);
     for (uint64 chromosome = 0; chromosome < genome.nChrReal; ++chromosome)
         genome.chrNameIndex[genome.chrName[chromosome]] = chromosome;
-    genome.genomeSequenceAllocate(genome.nGenome, genome.nG1alloc, genome.G, genome.G1);
+    genome.genomeSequenceAllocate(genome.nGenome, genome.nG1alloc, genome.G, genome.G1, false);
 
     vector<unsigned char> copyFailed(placements.size(), 0);
     #pragma omp parallel for num_threads(max(1, requestedThreads)) schedule(dynamic,1)

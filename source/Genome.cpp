@@ -217,7 +217,7 @@ void Genome::chrBinFill() {
 };
 
 //////////////////////////////////////////////////////////
-void Genome::genomeSequenceAllocate(uint64 nGenomeIn, uint64 &nG1allocOut, char*& Gout, char*& G1out)
+void Genome::genomeSequenceAllocate(uint64 nGenomeIn, uint64 &nG1allocOut, char*& Gout, char*& G1out, bool initializeReverse)
 {
     nG1allocOut=(nGenomeIn + 100)*2; //extra 100 bytes at the beginning, just in case
     
@@ -231,11 +231,14 @@ void Genome::genomeSequenceAllocate(uint64 nGenomeIn, uint64 &nG1allocOut, char*
     G1out=new char[nG1allocOut];
     Gout=G1out+100;
 
+    const uint64 initializeBytes=initializeReverse ? nG1allocOut : nGenomeIn+100;
     #pragma omp parallel num_threads(P.runThreadN)
     {//initialize disjoint ranges to K-1 before the genome is read
-        uint64 chunkSize=nG1allocOut/omp_get_num_threads();
+        uint64 chunkSize=initializeBytes/omp_get_num_threads();
         uint64 start=chunkSize*omp_get_thread_num();
-        uint64 end=omp_get_thread_num()+1==omp_get_num_threads() ? nG1allocOut : start+chunkSize;
+        uint64 end=omp_get_thread_num()+1==omp_get_num_threads() ? initializeBytes : start+chunkSize;
         memset(G1out+start,GENOME_spacingChar,end-start);
     };
+    if (!initializeReverse)
+        memset(G1out+nG1allocOut-100,GENOME_spacingChar,100);
 };
