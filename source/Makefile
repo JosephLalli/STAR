@@ -18,11 +18,18 @@ ifeq ($(filter clean CLEAN clean_solo,$(MAKECMDGOALS)),)
 -include htslib/htslib_static.mk
 endif
 
+# Discard unused bcftools CLI sections from the embedded consensus implementation.
+ifeq ($(shell uname -s),Darwin)
+CONSENSUS_LDFLAGS = -Wl,-dead_strip
+else
+CONSENSUS_LDFLAGS = -Wl,--gc-sections
+endif
+
 # pre-defined flags
-LDFLAGS_shared := -pthread -Lhtslib -Bstatic -lhts -Bdynamic $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
-LDFLAGS_static := -static -static-libgcc -pthread -Lhtslib -lhts $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
-LDFLAGS_Mac :=-pthread htslib/libhts.a $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
-LDFLAGS_Mac_static :=-pthread -static-libgcc htslib/libhts.a $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS)
+LDFLAGS_shared := -pthread -Lhtslib -Bstatic -lhts -Bdynamic $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS) $(CONSENSUS_LDFLAGS)
+LDFLAGS_static := -static -static-libgcc -pthread -Lhtslib -lhts $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS) $(CONSENSUS_LDFLAGS)
+LDFLAGS_Mac :=-pthread htslib/libhts.a $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS) $(CONSENSUS_LDFLAGS)
+LDFLAGS_Mac_static :=-pthread -static-libgcc htslib/libhts.a $(HTSLIB_static_LDFLAGS) $(HTSLIB_static_LIBS) $(CONSENSUS_LDFLAGS)
 LDFLAGS_gdb := $(LDFLAGS_shared)
 
 DATE_FMT = --iso-8601=seconds
@@ -58,7 +65,8 @@ CXXFLAGS_gdb := -O0 -g3 $(CXXFLAGS_common)
 
 ##########################################################################################################
 LIBSAIS_OBJECTS = libsais/src/libsais.o libsais/src/libsais64.o
-OBJECTS = Genome_genomeGenerateSA.o $(LIBSAIS_OBJECTS) systemFunctions.o funPrimaryAlignMark.o \
+CONSENSUS_OBJECTS = embedded_consensus/ConsensusEmbedded.o embedded_consensus/upstream/regidx.o
+OBJECTS = PersonalizedInput.o PersonalizedInput_fasta.o PersonalizedInput_gtf.o PersonalizedInput_output.o PersonalizedInput_vcf.o $(CONSENSUS_OBJECTS) Genome_genomeGenerateSA.o $(LIBSAIS_OBJECTS) systemFunctions.o funPrimaryAlignMark.o \
 	SoloFeature_collapseUMI_Graph.o SoloFeature_collapseUMIall.o ParametersClip_initialize.o ClipMate_clip.o ClipCR4.o opal/opal.o ClipMate_clipChunk.o ClipMate_initialize.o \
 	SoloFeature_loadRawMatrix.o SoloFeature_emptyDrops_CR.o soloInputFeatureUMI.o SoloFeature_countSmartSeq.o SoloFeature_redistributeReadsByCB.o \
 	SoloFeature_quantTranscript.o SoloFeature_sumThreads.o SoloFeature_countVelocyto.o SoloFeature_countCBgeneUMI.o \
@@ -121,7 +129,7 @@ opal/opal.o : opal/opal.cpp opal/opal.h
 
 .PHONY: clean
 clean:
-	'rm' -f *.o opal/opal.o $(LIBSAIS_OBJECTS) STAR STARstatic STARlong Depend.list parametersDefault.xxd
+	'rm' -f *.o opal/opal.o $(LIBSAIS_OBJECTS) $(CONSENSUS_OBJECTS) STAR STARstatic STARlong Depend.list parametersDefault.xxd
 
 .PHONY: CLEAN
 CLEAN: clean
@@ -211,3 +219,11 @@ STARlongForMacStatic : CXXFLAGS := -D'COMPILE_FOR_LONG_READS' $(CXXFLAGSextra) $
 STARlongForMacStatic : LDFLAGS := $(LDFLAGSextra) $(LDFLAGS_Mac_static) $(LDFLAGS)
 STARlongForMacStatic : Depend.list parametersDefault.xxd $(OBJECTS)
 	$(CXX) -o STARlong $(CXXFLAGS) $(OBJECTS) $(LDFLAGS)
+
+# Compile the consensus facade and private region index as C.
+$(CONSENSUS_OBJECTS) : embedded_consensus/ConsensusSymbols.h
+embedded_consensus/ConsensusEmbedded.o : embedded_consensus/ConsensusEmbedded.c embedded_consensus/ConsensusEmbedded.h embedded_consensus/upstream/consensus.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -ffunction-sections -fdata-sections -Ihtslib -include embedded_consensus/ConsensusSymbols.h -c $< -o $@
+
+embedded_consensus/upstream/regidx.o : embedded_consensus/upstream/regidx.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -ffunction-sections -fdata-sections -Ihtslib -include embedded_consensus/ConsensusSymbols.h -c $< -o $@

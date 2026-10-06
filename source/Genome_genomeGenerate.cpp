@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include "Genome.h"
+#include "PersonalizedInput.h"
 
 #include "IncludeDefine.h"
 #include "Parameters.h"
@@ -143,9 +144,19 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
     //define some parameters from input parameters
     genomeChrBinNbases=1LLU << pGe.gChrBinNbits;
 
-    nGenome = genomeScanFastaFiles(P,NULL,false,*this);//first scan the fasta file to find all the sizes
-    genomeSequenceAllocate(nGenome, nG1alloc, G, G1);
-    genomeScanFastaFiles(P,G,true,*this);    //load the genome sequence
+    if (P.personalizationVcf!="-") {
+        try {
+            personalizedInput=PersonalizedInput::build(*this);
+            personalizedInput->appendFasta(*this);
+        } catch (const std::exception &error) {
+            exitWithError("EXITING because personalized FASTA input failed: " + string(error.what()) + "\n",
+                          std::cerr,P.inOut->logMain,EXIT_CODE_INPUT_FILES,P);
+        };
+    } else {
+        nGenome = genomeScanFastaFiles(P,NULL,false,*this);//first scan the fasta file to find all the sizes
+        genomeSequenceAllocate(nGenome, nG1alloc, G, G1);
+        genomeScanFastaFiles(P,G,true,*this);    //load the genome sequence
+    };
 
     uint64 nGenomeTrue=0;
     for (auto &cl : chrLength)
@@ -156,7 +167,7 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
 
     //consensusSequence(); //replace with consensus allele DEPRECATED
         
-    if (!genomeGenerateWriteFiles && P.quant.yes)
+    if (!genomeGenerateWriteFiles && (P.quant.yes || P.personalizationTranscriptFasta=="Yes"))
         transcriptome=new Transcriptome(P, false);
     SjdbClass sjdbLoci; //will be filled in transcriptGeneSJ below
     GTF mainGTF(*this, P, pGe.gDir, sjdbLoci); //this loads exonLoci and gene/transcript metadata only, sjdbLoci is not filled
@@ -182,6 +193,17 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
     
     //output genome metadata
     if (genomeGenerateWriteFiles) writeChrInfo(pGe.gDir);
+
+    // Exporters read G; finish before suffix preparation changes or replaces it.
+    if (personalizedInput) {
+        try {
+            personalizedInput->startTranscriptOutput(*this);
+            personalizedInput->finishOutputs();
+        } catch (const std::exception &error) {
+            exitWithError("EXITING because personalized output failed: " + string(error.what()) + "\n",
+                          std::cerr,P.inOut->logMain,EXIT_CODE_FILE_WRITE,P);
+        };
+    };
 
     //preparing to generate SA
     for (uint ii=0;ii<nGenome;ii++) {//- strand

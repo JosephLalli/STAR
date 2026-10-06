@@ -7,10 +7,12 @@
 #include "SharedMemory.h"
 #include "Variation.h"
 #include "SuperTranscriptome.h"
+#include <memory>
 
 class GTF;
 class SjdbClass;
 class Transcriptome;
+class PersonalizedInput;
 
 class Genome {
 private:
@@ -32,6 +34,7 @@ public:
     Variation *Var;
     bool genomeGenerateWriteFiles = true;
     Transcriptome *transcriptome = NULL;
+    shared_ptr<PersonalizedInput> personalizedInput;
 
     uint nGenomeInsert, nGenomePass1, nGenomePass2, nSAinsert, nSApass1, nSApass2;
 

@@ -53,6 +53,14 @@ Parameters::Parameters() {//initalize parameters info
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeTransformOutput", &pGe.transform.output));
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeChrSetMitochondrial", &pGe.chrSet.mitoStrings));
 
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationVcf", &personalizationVcf));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationSample", &personalizationSample));
+    parArray.push_back(new ParameterInfoVector <string> (-1, -1, "personalizationHaploidContigs", &personalizationHaploidContigs));
+    parArray.push_back(new ParameterInfoVector <string> (-1, -1, "personalizationSkipAnnotationContigs", &personalizationSkipAnnotationContigs));
+    parArray.push_back(new ParameterInfoVector <string> (-1, -1, "personalizationExcludeContigs", &personalizationExcludeContigs));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationOutputPrefix", &personalizationOutputPrefix));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationTranscriptFasta", &personalizationTranscriptFasta));
+
     //read
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "readFilesType", &readFilesType));
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "readFilesIn", &readFilesIn));
@@ -618,6 +626,42 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         sysRemoveDir (outFileTmp);
         exit(0);
     };
+
+    bool personalizationPolicyRequested=false;
+    for (const string &contig : personalizationHaploidContigs)
+        personalizationPolicyRequested |= contig!="-";
+    for (const string &contig : personalizationSkipAnnotationContigs)
+        personalizationPolicyRequested |= contig!="-";
+    for (const string &contig : personalizationExcludeContigs)
+        personalizationPolicyRequested |= contig!="-";
+    const bool personalizationRequested=personalizationVcf!="-"
+            || personalizationSample!="-" || personalizationPolicyRequested
+            || personalizationOutputPrefix!="-" || personalizationTranscriptFasta!="No";
+    if (personalizationTranscriptFasta!="No" && personalizationTranscriptFasta!="Yes") {
+        exitWithError("EXITING because --personalizationTranscriptFasta must be No or Yes\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationTranscriptFasta=="Yes" && (personalizationOutputPrefix=="-" || pGe.sjdbGTFfile=="-")) {
+        exitWithError("EXITING because --personalizationTranscriptFasta Yes requires --personalizationOutputPrefix and --sjdbGTFfile\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationRequested && runMode!="genomeGenerateAndAlign") {
+        exitWithError("EXITING because personalization options require --runMode genomeGenerateAndAlign\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationOutputPrefix!="-" && personalizationVcf=="-") {
+        exitWithError("EXITING because --personalizationOutputPrefix requires --personalizationVcf and --personalizationSample\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationPolicyRequested && personalizationVcf=="-") {
+        exitWithError("EXITING because personalization contig policies require --personalizationVcf and --personalizationSample\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (((personalizationVcf=="-") != (personalizationSample=="-"))) {
+        exitWithError("EXITING because --personalizationVcf and --personalizationSample must be supplied together\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+
 
     outSAMbool=false;
     outBAMunsorted=false;

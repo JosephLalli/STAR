@@ -133,7 +133,8 @@ uint64 GTF::transcriptGeneSJ(const string &dirOut)
 
         qsort((void*) extrLoci, exonN, sizeof(uint64)*GTF_extrLoci_size, funCompareArrays<uint64,5>);
 
-        const bool transcriptData=P.quant.trSAM.yes || P.quant.gene.yes || P.quant.geneFull_Ex50pAS.yes;
+        const bool transcriptData=P.quant.trSAM.yes || P.quant.gene.yes || P.quant.geneFull_Ex50pAS.yes
+                                  || P.personalizationTranscriptFasta=="Yes";
         if (transcriptome!=NULL && transcriptData) {
             transcriptome->nTr=transcriptID.size();
             transcriptome->nEx=exonN;

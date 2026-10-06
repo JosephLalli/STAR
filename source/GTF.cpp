@@ -1,4 +1,5 @@
 #include "GTF.h"
+#include "PersonalizedInput.h"
 
 #include "ErrorWarning.h"
 #include "streamFuns.h"
@@ -22,8 +23,9 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
 
     std::map <string,uint64> transcriptIDnumber, geneIDnumber;    
     
-    ifstream sjdbStreamIn ( genome.pGe.sjdbGTFfile.c_str() );
-    if (sjdbStreamIn.fail()) {
+    ifstream sjdbStreamIn;
+    if (!genome.personalizedInput) sjdbStreamIn.open(genome.pGe.sjdbGTFfile.c_str());
+    if (!genome.personalizedInput && sjdbStreamIn.fail()) {
         ostringstream errOut;
         errOut << "FATAL error, could not open file pGe.sjdbGTFfile=" << genome.pGe.sjdbGTFfile <<"\n";
         exitWithError(errOut.str(),std::cerr, P.inOut->logMain, EXIT_CODE_INPUT_FILES, P);
@@ -36,7 +38,7 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
     };
 
     exonN=0;
-    while (sjdbStreamIn.good()) {//count the number of exons
+    while (!genome.personalizedInput && sjdbStreamIn.good()) {//count the number of exons
         
         string oneLine,chr1,ddd2,featureType;
         getline(sjdbStreamIn,oneLine);
@@ -50,7 +52,7 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
         };
     };
 
-    if (exonN==0)         {
+    if (!genome.personalizedInput && exonN==0) {
         ostringstream errOut;
         errOut << "Fatal INPUT FILE error, no ""exon"" lines in the GTF file: " << genome.pGe.sjdbGTFfile <<"\n";
         errOut << "Solution: check the formatting of the GTF file, it must contain some lines with ""exon"" in the 3rd column.\n";
@@ -62,12 +64,20 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
     exonLoci.resize(exonN);
     
     exonN=0;//will re-calculate
-    sjdbStreamIn.clear();
-    sjdbStreamIn.seekg(0,ios::beg);
-    while (sjdbStreamIn.good()) {
+    if (!genome.personalizedInput) {
+        sjdbStreamIn.clear();
+        sjdbStreamIn.seekg(0,ios::beg);
+    };
+    while (true) {
 
         string oneLine,chr1,ddd2,featureType;
-        getline(sjdbStreamIn,oneLine);
+        try {
+            if (!(genome.personalizedInput ? genome.personalizedInput->nextGtfLine(oneLine)
+                                          : static_cast<bool>(getline(sjdbStreamIn,oneLine)))) break;
+        } catch (const std::exception &error) {
+            exitWithError("EXITING because personalized GTF input failed: " + string(error.what()) + "\n",
+                          std::cerr,P.inOut->logMain,EXIT_CODE_INPUT_FILES,P);
+        };
         istringstream oneLineStream (oneLine);
 
         getline(oneLineStream,chr1,'\t');
@@ -154,6 +164,7 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
                 geneAttr.push_back({exAttr[2],exAttr[3]});
             };
 
+            if (genome.personalizedInput) exonLoci.emplace_back();
             exonLoci[exonN][exT]=transcriptIDnumber[exAttr[0]];
             exonLoci[exonN][exS]=ex1+genome.chrStart[genome.chrNameIndex[chr1]]-1;
             exonLoci[exonN][exE]=ex2+genome.chrStart[genome.chrNameIndex[chr1]]-1;

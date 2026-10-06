@@ -65,6 +65,27 @@ genomeTransformOutput       None
 genomeChrSetMitochondrial   chrM M MT
     string(s):              names of the mitochondrial chromosomes. Presently only used for STARsolo statistics output/
 
+personalizationVcf          -
+    string: phased VCF/BCF used by genomeGenerateAndAlign; "-" disables personalization.
+
+personalizationSample       -
+    string: sample name selected from personalizationVcf.
+
+personalizationHaploidContigs -
+    string(s): contigs emitted once rather than once per haplotype; specify explicitly.
+
+personalizationSkipAnnotationContigs -
+    string(s): contigs retained in sequence but omitted from personalized annotation; specify explicitly.
+
+personalizationExcludeContigs -
+    string(s): contigs left out of the personalized genome entirely, sequence and annotation; specify explicitly.
+
+personalizationOutputPrefix -
+    string: prefix for <sample>.personalized.fa.gz (with .fai/.gzi) and .gtf.gz; "-" writes neither.
+
+personalizationTranscriptFasta No
+    string: Yes additionally writes <sample>.personalized.transcripts.fa.gz with .fai/.gzi, using transcriptome BAM names and order. Requires personalizationOutputPrefix and sjdbGTFfile.
+
 ### Genome Indexing Parameters - only used with --runMode genomeGenerate
 genomeGenerateMethod        STAR
     string: suffix-array constructor. STAR uses the native constructor; libsais uses the bundled OpenMP sorter.

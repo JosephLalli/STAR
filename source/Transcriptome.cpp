@@ -116,7 +116,7 @@ Transcriptome::Transcriptome (Parameters &Pin, bool load) : P(Pin){
 };
 
 void Transcriptome::initialize() {
-    if ( P.quant.trSAM.yes || P.quant.gene.yes || P.quant.geneFull_Ex50pAS.yes ) {
+    if ( P.quant.trSAM.yes || P.quant.gene.yes || P.quant.geneFull_Ex50pAS.yes || P.personalizationTranscriptFasta=="Yes" ) {
         for (uint32 ii=0;ii<nTr;ii++) {
             uint32 iex1=trExI[ii]+trExN[ii]-1; //last exon of the transcript
             trLen[ii]=exLenCum[iex1]+exSE[2*iex1+1]-exSE[2*iex1]+1;

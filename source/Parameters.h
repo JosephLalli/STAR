@@ -51,6 +51,9 @@ class Parameters {
         //genome
         char genomeNumToNT[6];
         ParametersGenome pGe, pGeOut;
+        string personalizationVcf, personalizationSample;
+        vector<string> personalizationHaploidContigs, personalizationSkipAnnotationContigs, personalizationExcludeContigs;
+        string personalizationOutputPrefix, personalizationTranscriptFasta;
 
         //binning,windows,anchors
         uint winBinChrNbits, winBinNbits, winAnchorDistNbins, winFlankNbins, winBinN;
