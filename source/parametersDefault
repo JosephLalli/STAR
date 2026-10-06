@@ -16,6 +16,7 @@ runMode                         alignReads
     string: type of the run.
                                 alignReads             ... map reads
                                 genomeGenerate         ... generate genome files
+                                genomeGenerateAndAlign ... generate a resident index from FASTA/GTF and map reads without writing index files
                                 inputAlignmentsFromBAM ... input alignments from BAM. Presently only works with --outWigType and --bamRemoveDuplicates options.
                                 liftOver               ... lift-over of GTF files (--sjdbGTFfile) between genome assemblies using chain file(s) from --genomeChainFiles.
                                 soloCellFiltering  </path/to/raw/count/dir/>   </path/to/output/prefix>    ... STARsolo cell filtering ("calling") without remapping, followed by the path to raw count directory and output (filtered) prefix
@@ -64,7 +65,32 @@ genomeTransformOutput       None
 genomeChrSetMitochondrial   chrM M MT
     string(s):              names of the mitochondrial chromosomes. Presently only used for STARsolo statistics output/
 
+personalizationVcf          -
+    string: phased VCF/BCF used by genomeGenerateAndAlign; "-" disables personalization.
+
+personalizationSample       -
+    string: sample name selected from personalizationVcf.
+
+personalizationHaploidContigs -
+    string(s): contigs emitted once rather than once per haplotype; specify explicitly.
+
+personalizationSkipAnnotationContigs -
+    string(s): contigs retained in sequence but omitted from personalized annotation; specify explicitly.
+
+personalizationExcludeContigs -
+    string(s): contigs left out of the personalized genome entirely, sequence and annotation; specify explicitly.
+
+personalizationOutputPrefix -
+    string: prefix for <sample>.personalized.fa.gz (with .fai/.gzi) and .gtf.gz; "-" writes neither.
+
+personalizationTranscriptFasta No
+    string: Yes additionally writes <sample>.personalized.transcripts.fa.gz with .fai/.gzi, using transcriptome BAM names and order. Requires personalizationOutputPrefix and sjdbGTFfile.
+
 ### Genome Indexing Parameters - only used with --runMode genomeGenerate
+genomeGenerateMethod        STAR
+    string: suffix-array constructor. STAR uses the native constructor; libsais uses the bundled OpenMP sorter.
+            libsais requires genomeType Full, genomeSAsparseD 1, genomeSuffixLengthMax -1, at most 125 padded contigs, and little-endian byte order.
+
 genomeChrBinNbits           18
     int: =log2(chrBin), where chrBin is the size of the bins for genome storage: each chromosome will occupy an integer number of bins. For a genome with large number of contigs, it is recommended to scale this parameter as min(18, log2[max(GenomeLength/NumberOfReferences,ReadLength)]).
 
@@ -410,6 +436,12 @@ outSAMtlen              1
 
 outBAMcompression       1
     int: -1 to 10  BAM compression level, -1=default compression (6?), 0=no compression, 10=maximum compression
+
+outBAMcompressionThreads 0
+    int: background BGZF compression workers shared by unsorted genome and transcriptome BAM streams
+                                -1 ... auto: one worker per four total threads, up to 6, while reserving one writer helper per stream and one mapping thread
+                                 0 ... synchronous compression (default); --runThreadN remains the mapping-thread count
+                                >0 ... exact worker count inside the --runThreadN total-thread budget
 
 outBAMsortingThreadN    0
     int: >=0: number of threads for BAM sorting. 0 will default to min(6,--runThreadN).

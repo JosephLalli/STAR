@@ -132,7 +132,7 @@ void ReadAlign::outFilterBySJout()
 void ReadAlign::writeSAM(uint64 nTrOutSAM, Transcript **trOutSAM, Transcript *trBestSAM)
 {
     outBAMbytes=0;
-    mateMapped[0] = mateMapped[1] = false; //mateMapped = are mates present in any of the transcripts?
+    mateMapped[0] = mateMapped[1] = false; //mateMapped = are mates present in emitted primary transcripts?
 
     if (unmapType < 0 && outFilterBySJoutPass) {//write to SAM/BAM
         
@@ -166,12 +166,21 @@ void ReadAlign::writeSAM(uint64 nTrOutSAM, Transcript **trOutSAM, Transcript *tr
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
         ////// write SAM/BAM 
         auto nTrOutWrite=min(P.outSAMmultNmax,nTrOutSAM); //number of aligns to write to SAM/BAM files            
+        Transcript *trUnmappedAnchorSAM=NULL;
+        bool primaryMateMapped[2]={false,false};
         
         for (uint iTr=0;iTr<nTrOutWrite;iTr++) {//write transcripts
             //mateMapped1 = true if a mate is present in this transcript
             bool mateMapped1[2]={false,false};
             mateMapped1[trOutSAM[iTr]->exons[0][EX_iFrag]]=true;
             mateMapped1[trOutSAM[iTr]->exons[trOutSAM[iTr]->nExons-1][EX_iFrag]]=true;
+            if (trOutSAM[iTr]->primaryFlag) {
+                primaryMateMapped[trOutSAM[iTr]->exons[0][EX_iFrag]]=true;
+                primaryMateMapped[trOutSAM[iTr]->exons[trOutSAM[iTr]->nExons-1][EX_iFrag]]=true;
+                if (trUnmappedAnchorSAM==NULL || trOutSAM[iTr]==trBestSAM) {
+                    trUnmappedAnchorSAM=trOutSAM[iTr];
+                };
+            };
 
             if (P.outSAMbool) {//SAM output
                 outBAMbytes+=outputTranscriptSAM(*(trOutSAM[iTr]), nTrOutSAM, iTr, (uint) -1, (uint) -1, 0, -1, NULL, outSAMstream);
@@ -203,11 +212,13 @@ void ReadAlign::writeSAM(uint64 nTrOutSAM, Transcript **trOutSAM, Transcript *tr
             };
         };
 
-        /////////////////////////////////////////////////////////////////////////////////////////////
-        //////// write unmapped ends
-        //TODO it's better to check all transcripts in the loop above for presence of both mates
-        mateMapped[trBestSAM->exons[0][EX_iFrag]] = true;
-        mateMapped[trBestSAM->exons[trBestSAM->nExons-1][EX_iFrag]] = true;
+        if (trUnmappedAnchorSAM==NULL) {
+            trUnmappedAnchorSAM=trBestSAM;
+            primaryMateMapped[trBestSAM->exons[0][EX_iFrag]]=true;
+            primaryMateMapped[trBestSAM->exons[trBestSAM->nExons-1][EX_iFrag]]=true;
+        };
+        mateMapped[0]=primaryMateMapped[0];
+        mateMapped[1]=primaryMateMapped[1];
 
         if (P.readNmates>1 && !(mateMapped[0] && mateMapped[1]) ) {//not readNends: this is alignment
             unmapType=4;
@@ -215,11 +226,11 @@ void ReadAlign::writeSAM(uint64 nTrOutSAM, Transcript **trOutSAM, Transcript *tr
 
         if (unmapType==4 && P.outSAMunmapped.within) {//output unmapped ends for single-end alignments of PE reads
             if (P.outSAMbool && !P.outSAMunmapped.keepPairs ) {
-                outBAMbytes+= outputTranscriptSAM(*trBestSAM, 0, 0, (uint) -1, (uint) -1, 0, unmapType, mateMapped, outSAMstream);
+                outBAMbytes+= outputTranscriptSAM(*trUnmappedAnchorSAM, 0, 0, (uint) -1, (uint) -1, 0, unmapType, mateMapped, outSAMstream);
             };
 
             if ( P.outBAMcoord || (P.outBAMunsorted && !P.outSAMunmapped.keepPairs) ) {//BAM output
-                alignBAM(*trBestSAM, 0, 0, mapGen.chrStart[trBestSAM->Chr], (uint) -1, (uint) -1, 0, unmapType, mateMapped, P.outSAMattrOrder, outBAMoneAlign, outBAMoneAlignNbytes);
+                alignBAM(*trUnmappedAnchorSAM, 0, 0, mapGen.chrStart[trUnmappedAnchorSAM->Chr], (uint) -1, (uint) -1, 0, unmapType, mateMapped, P.outSAMattrOrder, outBAMoneAlign, outBAMoneAlignNbytes);
                 for (uint imate=0; imate<P.readNmates; imate++) {//alignBAM output is empty for mapped mate, but still need to scan through it //not readNends: this is alignment
                     if (P.outBAMunsorted && !P.outSAMunmapped.keepPairs) {
                         outBAMunsorted->unsortedOneAlign(outBAMoneAlign[imate], outBAMoneAlignNbytes[imate], imate>0 ? 0 : outBAMoneAlignNbytes[0]+outBAMoneAlignNbytes[1]);

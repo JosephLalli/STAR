@@ -7,8 +7,12 @@
 #include "SharedMemory.h"
 #include "Variation.h"
 #include "SuperTranscriptome.h"
+#include <memory>
 
 class GTF;
+class SjdbClass;
+class Transcriptome;
+class PersonalizedInput;
 
 class Genome {
 private:
@@ -28,6 +32,9 @@ public:
     PackedArray SA,SAinsert,SApass1,SApass2;
     PackedArray SAi;
     Variation *Var;
+    bool genomeGenerateWriteFiles = true;
+    Transcriptome *transcriptome = NULL;
+    shared_ptr<PersonalizedInput> personalizedInput;
 
     uint nGenomeInsert, nGenomePass1, nGenomePass2, nSAinsert, nSApass1, nSApass2;
 
@@ -67,6 +74,7 @@ public:
 
     void freeMemory();
     void genomeLoad();
+    void genomeMappingParameters(const string &transformType);
     void genomeOutLoad();
     void chrBinFill();
     void chrInfoLoad();
@@ -77,7 +85,8 @@ public:
 
     //void consensusSequence(); DEPRECATED
     
-    void genomeGenerate();
+    void genomeGenerate(SjdbClass *junctions = NULL);
+    bool genomeGenerateSA(SjdbClass &sjdbLoci);
     void writeChrInfo(const string dirOut);
     void concatenateChromosomes(const vector<vector<uint8>> &vecSeq, const vector<string> &vecName, const uint64 padBin);
     void writeGenomeSequence(const string dirOut);

@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include "Genome.h"
+#include "PersonalizedInput.h"
 
 #include "IncludeDefine.h"
 #include "Parameters.h"
@@ -16,6 +17,7 @@
 #include "sjdbInsertJunctions.h"
 #include "genomeScanFastaFiles.h"
 #include "genomeSAindex.h"
+#include "Transcriptome.h"
 
 #include "serviceFuns.cpp"
 #include "streamFuns.h"
@@ -95,9 +97,11 @@ inline uint funG2strLocus (uint SAstr, uint const N, char const GstrandBit, uint
     return SAstr;
 };
 
-void Genome::genomeGenerate() {
+void Genome::genomeGenerate(SjdbClass *junctions) {
 
+    genomeGenerateWriteFiles=junctions==NULL;
     //check parameters
+	if (genomeGenerateWriteFiles) {
 	createDirectory(pGe.gDir, P.runDirPerm, "--genomeDir", P);
 
 	{//move Log.out file into genome directory
@@ -109,6 +113,7 @@ void Genome::genomeGenerate() {
 			P.outLogFileName=logfn;
 		};
 	};
+    };
     if (sjdbOverhang<=0 && (pGe.sjdbFileChrStartEnd.at(0)!="-" || pGe.sjdbGTFfile!="-")) {
         ostringstream errOut;
         errOut << "EXITING because of FATAL INPUT PARAMETER ERROR: for generating genome with annotations (--sjdbFileChrStartEnd or --sjdbGTFfile options)\n";
@@ -139,9 +144,19 @@ void Genome::genomeGenerate() {
     //define some parameters from input parameters
     genomeChrBinNbases=1LLU << pGe.gChrBinNbits;
 
-    nGenome = genomeScanFastaFiles(P,NULL,false,*this);//first scan the fasta file to find all the sizes
-    genomeSequenceAllocate(nGenome, nG1alloc, G, G1);
-    genomeScanFastaFiles(P,G,true,*this);    //load the genome sequence
+    if (P.personalizationVcf!="-") {
+        try {
+            personalizedInput=PersonalizedInput::build(*this);
+            personalizedInput->appendFasta(*this);
+        } catch (const std::exception &error) {
+            exitWithError("EXITING because personalized FASTA input failed: " + string(error.what()) + "\n",
+                          std::cerr,P.inOut->logMain,EXIT_CODE_INPUT_FILES,P);
+        };
+    } else {
+        nGenome = genomeScanFastaFiles(P,NULL,false,*this);//first scan the fasta file to find all the sizes
+        genomeSequenceAllocate(nGenome, nG1alloc, G, G1);
+        genomeScanFastaFiles(P,G,true,*this);    //load the genome sequence
+    };
 
     uint64 nGenomeTrue=0;
     for (auto &cl : chrLength)
@@ -152,8 +167,13 @@ void Genome::genomeGenerate() {
 
     //consensusSequence(); //replace with consensus allele DEPRECATED
         
+    if (!genomeGenerateWriteFiles && (P.quant.yes || P.personalizationTranscriptFasta=="Yes"))
+        transcriptome=new Transcriptome(P, false);
     SjdbClass sjdbLoci; //will be filled in transcriptGeneSJ below
     GTF mainGTF(*this, P, pGe.gDir, sjdbLoci); //this loads exonLoci and gene/transcript metadata only, sjdbLoci is not filled
+    if (transcriptome!=NULL && !mainGTF.gtfYes)
+        exitWithError("EXITING because genomeGenerateAndAlign requires --sjdbGTFfile for --quantMode\n",
+                      std::cerr,P.inOut->logMain,EXIT_CODE_INPUT_FILES,P);
     
     Genome::transformGenome(&mainGTF);
     
@@ -172,7 +192,18 @@ void Genome::genomeGenerate() {
     };    
     
     //output genome metadata
-    writeChrInfo(pGe.gDir);
+    if (genomeGenerateWriteFiles) writeChrInfo(pGe.gDir);
+
+    // Exporters read G; finish before suffix preparation changes or replaces it.
+    if (personalizedInput) {
+        try {
+            personalizedInput->startTranscriptOutput(*this);
+            personalizedInput->finishOutputs();
+        } catch (const std::exception &error) {
+            exitWithError("EXITING because personalized output failed: " + string(error.what()) + "\n",
+                          std::cerr,P.inOut->logMain,EXIT_CODE_FILE_WRITE,P);
+        };
+    };
 
     //preparing to generate SA
     for (uint ii=0;ii<nGenome;ii++) {//- strand
@@ -201,6 +232,9 @@ void Genome::genomeGenerate() {
         SApass1.defineBits(GstrandBit+1,nSA);
     };
 
+    if (!genomeGenerateWriteFiles && P.twoPass.yes)
+        SApass2.defineBits(GstrandBit+1,SApass1.length+2*P.limitSjdbInsertNsj*sjdbLength);
+
     P.inOut->logMain  << "Number of SA indices: "<< nSA << "\n"<<flush;
 
     //sort SA
@@ -209,8 +243,10 @@ void Genome::genomeGenerate() {
     *P.inOut->logStdOut  << timeMonthDayTime(rawTime) <<" ... starting to sort Suffix Array. This may take a long time...\n" <<flush;
 
 
-//     if (false)
-    {//sort SA chunks
+    bool junctionsInSort=false;
+    if (pGe.gGenerateMethod=="libsais") {
+        junctionsInSort=genomeGenerateSA(sjdbLoci);
+    } else {//sort SA chunks
 
         for (uint ii=0;ii<nGenome;ii++) {//re-fill the array backwards for sorting
             swap(G[2*nGenome-1-ii],G[ii]);
@@ -356,8 +392,9 @@ void Genome::genomeGenerate() {
 
     genomeSAindex(G, SA, P, SAi, *this);
 
-    sjdbN=0;
-    if (P.sjdbInsert.yes) {//insert junctions
+    if (!junctionsInSort)
+        sjdbN=0;
+    if (P.sjdbInsert.yes && !junctionsInSort) {//insert junctions
         P.sjdbInsert.outDir=pGe.gDir;
         P.twoPass.pass2=false;
 
@@ -368,6 +405,37 @@ void Genome::genomeGenerate() {
     pGe.gFileSizes.clear();
     pGe.gFileSizes.push_back(nGenome);
     pGe.gFileSizes.push_back(SA.lengthByte);
+
+    if (!genomeGenerateWriteFiles) {
+        // Match the junction list a separate mapping run would load from sjdbList.out.tab.
+        for (uint ii=0; ii<sjdbN; ++ii) {
+            const uint chr=chrBin[sjdbStart[ii] >> pGe.gChrBinNbits];
+            const uint shift=sjdbMotif[ii]>0 ? 0 : sjdbShiftLeft[ii];
+            junctions->chr.push_back(chrName[chr]);
+            junctions->start.push_back(sjdbStart[ii]-chrStart[chr]+1+shift);
+            junctions->end.push_back(sjdbEnd[ii]-chrStart[chr]+1+shift);
+            junctions->str.push_back(".+-"[sjdbStrand[ii]]);
+        };
+        junctions->priority.resize(sjdbN,30);
+        sjChrStart=nChrReal;
+        sjGstart=chrStart[nChrReal]+(sjdbN==0);
+        if (sjdbN==0) sjdbOverhang=pGe.sjdbOverhang;
+        genomeInsertChrIndFirst=nChrReal;
+        // Replace the doubled sorting text with the mapper's forward text and junction capacity.
+        char *sortG1=G1;
+        nG1alloc=nGenome+(P.twoPass.yes ? P.limitSjdbInsertNsj*sjdbLength : 0)+400;
+        G1=new char[nG1alloc];
+        memset(G1,GENOME_spacingChar,200);
+        memcpy(G1+200,G,nGenome);
+        G=G1+200;
+        memset(G+nGenome,GENOME_spacingChar,nG1alloc-nGenome-200);
+        delete[] sortG1;
+        P.sjdbInsert.pass1=false;
+        P.sjdbInsert.yes=P.sjdbInsert.pass2;
+        pGe.gType=1;
+        genomeMappingParameters("None");
+        return;
+    };
 
     //write genome parameters file
     genomeParametersWrite(pGe.gDir+("/genomeParameters.txt"), P, ERROR_OUT, *this);

@@ -31,6 +31,7 @@
 #include "twoPassRunPass1.h"
 
 #include "htslib/htslib/sam.h"
+#include "htslib/htslib/thread_pool.h"
 #include "parametersDefault.xxd"
 
 void usage(int usageType)
@@ -80,7 +81,7 @@ int main(int argInN, char *argIn[])
                           << flush;
 
     // runMode
-    if (P.runMode == "alignReads" || P.runMode == "soloCellFiltering")
+    if (P.runMode == "alignReads" || P.runMode == "genomeGenerateAndAlign" || P.runMode == "soloCellFiltering")
     {
         // continue
     }
@@ -133,7 +134,12 @@ int main(int argInN, char *argIn[])
     ////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// Genome
     Genome genomeMain(P, P.pGe);
-    genomeMain.genomeLoad();
+    SjdbClass sjdbLoci;
+    if (P.runMode=="genomeGenerateAndAlign") {
+        genomeMain.genomeGenerate(&sjdbLoci);
+    } else {
+        genomeMain.genomeLoad();
+    };
 
     if (P.pGe.transform.outYes) {
         genomeMain.Var = new Variation(P, genomeMain.chrStart, genomeMain.chrNameIndex, false);//no variation for mapGen, only for genOut
@@ -141,8 +147,6 @@ int main(int argInN, char *argIn[])
     } else {
         genomeMain.Var = new Variation(P, genomeMain.chrStart, genomeMain.chrNameIndex, P.var.yes);
     };
-
-    SjdbClass sjdbLoci;
 
     if (P.sjdbInsert.pass1) {
         Genome genomeMain1 = genomeMain; // not sure if I need to create the copy - genomeMain1 below should not be changed
@@ -171,7 +175,7 @@ int main(int argInN, char *argIn[])
 
     if (P.quant.yes)
     { // load transcriptome
-        transcriptomeMain = new Transcriptome(P);
+        transcriptomeMain = genomeMain.transcriptome==NULL ? new Transcriptome(P) : genomeMain.transcriptome;
     };
 
     // initialize Stats
@@ -183,6 +187,47 @@ int main(int argInN, char *argIn[])
 
     // SAM headers
     samHeaders(P, *genomeMain.genomeOut.g, *transcriptomeMain);
+
+    hts_tpool *bamCompressionPool=NULL;
+    const int bamStreamN=(P.inOut->outBAMfileUnsorted!=NULL ? 1 : 0)
+                        +(P.inOut->outQuantBAMfile!=NULL ? 1 : 0);
+    int bamCompressionThreads=P.outBAMcompressionThreads;
+    if (bamStreamN>0 && bamCompressionThreads!=0) {
+        if (bamCompressionThreads==-1) {
+            bamCompressionThreads=min(6,min(P.runThreadN/4,
+                max(0,P.runThreadN-bamStreamN-1)));
+        };
+        P.outBAMcompressionThreads=bamCompressionThreads;
+
+        if (bamCompressionThreads>0) {
+            bamCompressionPool=hts_tpool_init(bamCompressionThreads);
+            bool bamCompressionAttachError=bamCompressionPool==NULL;
+            if (!bamCompressionAttachError && P.inOut->outBAMfileUnsorted!=NULL
+                    && bgzf_thread_pool(P.inOut->outBAMfileUnsorted,bamCompressionPool,0)!=0) {
+                bamCompressionAttachError=true;
+            };
+            if (!bamCompressionAttachError && P.inOut->outQuantBAMfile!=NULL
+                    && bgzf_thread_pool(P.inOut->outQuantBAMfile,bamCompressionPool,0)!=0) {
+                bamCompressionAttachError=true;
+            };
+
+            if (bamCompressionAttachError) {
+                if (P.inOut->outBAMfileUnsorted!=NULL) {
+                    bgzf_flush(P.inOut->outBAMfileUnsorted);
+                    bgzf_close(P.inOut->outBAMfileUnsorted);
+                };
+                if (P.inOut->outQuantBAMfile!=NULL) {
+                    bgzf_flush(P.inOut->outQuantBAMfile);
+                    bgzf_close(P.inOut->outQuantBAMfile);
+                };
+                if (bamCompressionPool!=NULL)
+                    hts_tpool_destroy(bamCompressionPool);
+                exitWithError("EXITING because STAR could not initialize pooled BAM compression\n",
+                              std::cerr, P.inOut->logMain, EXIT_CODE_FILE_WRITE, P);
+            };
+            P.runThreadN-=bamCompressionThreads+bamStreamN;
+        };
+    };
 
     // initialize chimeric parameters here - note that chimeric parameters require samHeader
     P.pCh.initialize(&P);
@@ -219,17 +264,27 @@ int main(int argInN, char *argIn[])
         mapThreadsSpawn(P, RAchunk);
     };
 
-    // close some BAM files
+    int unsortedBAMcloseStatus=0;
     if (P.inOut->outBAMfileUnsorted != NULL)
     {
-        bgzf_flush(P.inOut->outBAMfileUnsorted);
-        bgzf_close(P.inOut->outBAMfileUnsorted);
+        if (bgzf_flush(P.inOut->outBAMfileUnsorted)!=0)
+            unsortedBAMcloseStatus=-1;
+        if (bgzf_close(P.inOut->outBAMfileUnsorted)!=0)
+            unsortedBAMcloseStatus=-1;
     };
+    int quantBAMcloseStatus=0;
     if (P.inOut->outQuantBAMfile != NULL)
     {
-        bgzf_flush(P.inOut->outQuantBAMfile);
-        bgzf_close(P.inOut->outQuantBAMfile);
+        if (bgzf_flush(P.inOut->outQuantBAMfile)!=0)
+            quantBAMcloseStatus=-1;
+        if (bgzf_close(P.inOut->outQuantBAMfile)!=0)
+            quantBAMcloseStatus=-1;
     };
+    if (bamCompressionPool!=NULL)
+        hts_tpool_destroy(bamCompressionPool);
+    if (unsortedBAMcloseStatus!=0 || quantBAMcloseStatus!=0)
+        exitWithError("EXITING because STAR failed to close a streamed BAM output\n",
+                      std::cerr, P.inOut->logMain, EXIT_CODE_FILE_WRITE, P);
 
     if (P.outBAMcoord && P.limitBAMsortRAM == 0)
     { // make it equal ot the genome size

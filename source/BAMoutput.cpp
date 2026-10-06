@@ -33,12 +33,13 @@ BAMoutput::BAMoutput (int iChunk, string tmpDir, Parameters &Pin) : P(Pin){//all
     nBins=1;//start with one bin to estimate genomic bin sizes
 };
 
-BAMoutput::BAMoutput (BGZF *bgzfBAMin, Parameters &Pin) : P(Pin){//allocate BAM array with one bin, streamed directly into bgzf file
+BAMoutput::BAMoutput (BGZF *bgzfBAMin, pthread_mutex_t *bgzfMutexIn, Parameters &Pin) : P(Pin){//allocate BAM array with one bin, streamed directly into bgzf file
 
     bamArraySize=P.chunkOutBAMsizeBytes;
     bamArray = new char [bamArraySize];
     binBytes1=0;
     bgzfBAM=bgzfBAMin;
+    bgzfMutex=bgzfMutexIn;
     //not used
     binSize=0;
     binStream=NULL;
@@ -55,9 +56,9 @@ void BAMoutput::unsortedOneAlign (char *bamIn, uint bamSize, uint bamSize2) {//r
 
     if (binBytes1+bamSize2 > bamArraySize) {//write out this buffer
 
-        if (g_threadChunks.threadBool) pthread_mutex_lock(&g_threadChunks.mutexOutSAM);
+        if (g_threadChunks.threadBool) pthread_mutex_lock(bgzfMutex);
         bgzf_write(bgzfBAM,bamArray,binBytes1);
-        if (g_threadChunks.threadBool) pthread_mutex_unlock(&g_threadChunks.mutexOutSAM);
+        if (g_threadChunks.threadBool) pthread_mutex_unlock(bgzfMutex);
 
         binBytes1=0;//rewind the buffer
     };
@@ -68,9 +69,9 @@ void BAMoutput::unsortedOneAlign (char *bamIn, uint bamSize, uint bamSize2) {//r
 };
 
 void BAMoutput::unsortedFlush () {//flush all alignments
-    if (g_threadChunks.threadBool) pthread_mutex_lock(&g_threadChunks.mutexOutSAM);
+    if (g_threadChunks.threadBool) pthread_mutex_lock(bgzfMutex);
     bgzf_write(bgzfBAM,bamArray,binBytes1);
-    if (g_threadChunks.threadBool) pthread_mutex_unlock(&g_threadChunks.mutexOutSAM);
+    if (g_threadChunks.threadBool) pthread_mutex_unlock(bgzfMutex);
     binBytes1=0;//rewind the buffer
 };
 

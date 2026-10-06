@@ -44,7 +44,8 @@ public:
     Quantifications *quants;
 
     //methods:
-    Transcriptome (Parameters &Pin); //create transcriptome structure, load and initialize parameters
+    Transcriptome (Parameters &Pin, bool load=true); //create transcriptome structure, optionally load it from files
+    void initialize(); //finish derived transcriptome structures after loading or resident construction
     uint32 quantAlign (Transcript &aG, Transcript *aTall);//transform coordinates for all aligns from genomic in RA to transcriptomic in RAtr
     void geneCountsAddAlign(uint nA, Transcript **aAll, vector<int32> &gene1); //add one alignment to gene counts
     void quantsAllocate(); //allocate quants structure

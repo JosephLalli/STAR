@@ -42,6 +42,7 @@ Parameters::Parameters() {//initalize parameters info
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeFastaFiles", &pGe.gFastaFiles));
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeChainFiles", &pGe.gChainFiles));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeSAindexNbases", &pGe.gSAindexNbases));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "genomeGenerateMethod", &pGe.gGenerateMethod));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeChrBinNbits", &pGe.gChrBinNbits));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeSAsparseD", &pGe.gSAsparseD));
     parArray.push_back(new ParameterInfoScalar <uint> (-1, -1, "genomeSuffixLengthMax", &pGe.gSuffixLengthMax));
@@ -51,6 +52,14 @@ Parameters::Parameters() {//initalize parameters info
     parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "genomeTransformVCF", &pGe.transform.vcfFile));
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeTransformOutput", &pGe.transform.output));
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "genomeChrSetMitochondrial", &pGe.chrSet.mitoStrings));
+
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationVcf", &personalizationVcf));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationSample", &personalizationSample));
+    parArray.push_back(new ParameterInfoVector <string> (-1, -1, "personalizationHaploidContigs", &personalizationHaploidContigs));
+    parArray.push_back(new ParameterInfoVector <string> (-1, -1, "personalizationSkipAnnotationContigs", &personalizationSkipAnnotationContigs));
+    parArray.push_back(new ParameterInfoVector <string> (-1, -1, "personalizationExcludeContigs", &personalizationExcludeContigs));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationOutputPrefix", &personalizationOutputPrefix));
+    parArray.push_back(new ParameterInfoScalar <string> (-1, -1, "personalizationTranscriptFasta", &personalizationTranscriptFasta));
 
     //read
     parArray.push_back(new ParameterInfoVector <string> (-1, -1, "readFilesType", &readFilesType));
@@ -111,6 +120,7 @@ Parameters::Parameters() {//initalize parameters info
     parArray.push_back(new ParameterInfoVector <string>     (-1, -1, "outSAMheaderPG", &outSAMheaderPG));
     parArray.push_back(new ParameterInfoScalar <string>     (-1, -1, "outSAMheaderCommentFile", &outSAMheaderCommentFile));
     parArray.push_back(new ParameterInfoScalar <int>        (-1, -1, "outBAMcompression", &outBAMcompression));
+    parArray.push_back(new ParameterInfoScalar <int>        (-1, -1, "outBAMcompressionThreads", &outBAMcompressionThreads));
     parArray.push_back(new ParameterInfoScalar <int>        (-1, -1, "outBAMsortingThreadN", &outBAMsortingThreadN));
     parArray.push_back(new ParameterInfoScalar <uint32>        (-1, -1, "outBAMsortingBinsN", &outBAMsortingBinsN));
     parArray.push_back(new ParameterInfoVector <string>     (-1, -1, "outSAMfilter", &outSAMfilter.mode));
@@ -580,7 +590,18 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     };
 
     runMode=runModeIn[0];
-    if (runMode=="alignReads") {
+    if (pGe.gGenerateMethod!="STAR" && pGe.gGenerateMethod!="libsais") {
+        exitWithError("EXITING because --genomeGenerateMethod must be STAR or libsais\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (runMode=="genomeGenerateAndAlign" && (pGe.gGenerateMethod!="libsais" || pGe.gLoad!="NoSharedMemory"
+            || pGe.gTypeString!="Full" || pGe.transform.type!=0 || pGe.transform.outYes || pGe.sjdbInsertSave=="All")) {
+        exitWithError("EXITING because genomeGenerateAndAlign requires --genomeGenerateMethod libsais, "
+                      "--genomeLoad NoSharedMemory, --genomeType Full, no genome transformation, and --sjdbInsertSave Basic\n",
+                      std::cerr,inOut->logMain,EXIT_CODE_PARAMETER,*this);
+    };
+    const bool alignRun=runMode=="alignReads" || runMode=="genomeGenerateAndAlign";
+    if (alignRun) {
         inOut->logProgress.open((outFileNamePrefix + "Log.progress.out").c_str());
     } else if (runMode=="inputAlignmentsFromBAM") {
         //at the moment, only wiggle output is implemented
@@ -606,10 +627,46 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         exit(0);
     };
 
+    bool personalizationPolicyRequested=false;
+    for (const string &contig : personalizationHaploidContigs)
+        personalizationPolicyRequested |= contig!="-";
+    for (const string &contig : personalizationSkipAnnotationContigs)
+        personalizationPolicyRequested |= contig!="-";
+    for (const string &contig : personalizationExcludeContigs)
+        personalizationPolicyRequested |= contig!="-";
+    const bool personalizationRequested=personalizationVcf!="-"
+            || personalizationSample!="-" || personalizationPolicyRequested
+            || personalizationOutputPrefix!="-" || personalizationTranscriptFasta!="No";
+    if (personalizationTranscriptFasta!="No" && personalizationTranscriptFasta!="Yes") {
+        exitWithError("EXITING because --personalizationTranscriptFasta must be No or Yes\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationTranscriptFasta=="Yes" && (personalizationOutputPrefix=="-" || pGe.sjdbGTFfile=="-")) {
+        exitWithError("EXITING because --personalizationTranscriptFasta Yes requires --personalizationOutputPrefix and --sjdbGTFfile\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationRequested && runMode!="genomeGenerateAndAlign") {
+        exitWithError("EXITING because personalization options require --runMode genomeGenerateAndAlign\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationOutputPrefix!="-" && personalizationVcf=="-") {
+        exitWithError("EXITING because --personalizationOutputPrefix requires --personalizationVcf and --personalizationSample\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (personalizationPolicyRequested && personalizationVcf=="-") {
+        exitWithError("EXITING because personalization contig policies require --personalizationVcf and --personalizationSample\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (((personalizationVcf=="-") != (personalizationSample=="-"))) {
+        exitWithError("EXITING because --personalizationVcf and --personalizationSample must be supplied together\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+
+
     outSAMbool=false;
     outBAMunsorted=false;
     outBAMcoord=false;
-    if (runMode=="alignReads" && outSAMmode != "None") {//open SAM file and write header
+    if (alignRun && outSAMmode != "None") {//open SAM file and write header
         if (outSAMtype.at(0)=="BAM") {
             if (outSAMtype.size()<2) {
                 ostringstream errOut;
@@ -682,7 +739,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         };
     };
 
-    if (!outBAMcoord && outWigFlags.yes && runMode=="alignReads") {
+    if (!outBAMcoord && outWigFlags.yes && alignRun) {
         ostringstream errOut;
         errOut <<"EXITING because of fatal PARAMETER error: generating signal with --outWigType requires sorted BAM\n";
         errOut <<"SOLUTION: re-run STAR with with --outSAMtype BAM SortedByCoordinate, or, id you also need unsroted BAM, with --outSAMtype BAM SortedByCoordinate Unsorted\n";
@@ -704,6 +761,10 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
         ostringstream errOut;
         errOut <<"EXITING: fatal input ERROR: runThreadN must be >0, user-defined runThreadN="<<runThreadN<<"\n";
         exitWithError(errOut.str(), std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
+    };
+    if (outBAMcompressionThreads < -1) {
+        exitWithError("EXITING: --outBAMcompressionThreads must be -1 (auto), 0 (synchronous), or positive\n",
+                      std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
     };
 
     //
@@ -786,9 +847,9 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     twoPass.yes=false;
     twoPass.pass2=false;
     if (twoPass.mode!="None") {//2-pass parameters
-        if (runMode!="alignReads") {
+        if (!alignRun) {
             ostringstream errOut;
-            errOut << "EXITING because of fatal PARAMETERS error: 2-pass mapping option  can only be used with --runMode alignReads\n";
+            errOut << "EXITING because of fatal PARAMETERS error: 2-pass mapping option requires --runMode alignReads or genomeGenerateAndAlign\n";
             errOut << "SOLUTION: remove --twopassMode option";
             exitWithError(errOut.str(),std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
         };
@@ -825,7 +886,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
     };
 
     // openReadFiles depends on twoPass for reading SAM header
-    if (runMode=="alignReads" && pGe.gLoad!="Remove" && pGe.gLoad!="LoadAndExit") {//open reads files to check if they are present
+    if (alignRun && pGe.gLoad!="Remove" && pGe.gLoad!="LoadAndExit") {//open reads files to check if they are present
         openReadsFiles();
 
         if (readNends > 2 && pSolo.typeStr=="None") {//could have >2 mates only for Solo
@@ -835,7 +896,7 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
             exitWithError(errOut.str(), std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
         };
 
-        if ( runMode=="alignReads" && outReadsUnmapped=="Fastx" ) {//open unmapped reads file
+        if ( outReadsUnmapped=="Fastx" ) {//open unmapped reads file
             for (uint imate=0;imate<readNends;imate++) {
                 ostringstream ff;
                 ff << outFileNamePrefix << "Unmapped.out.mate" << imate+1;
@@ -935,6 +996,15 @@ void Parameters::inputParameters (int argInN, char* argIn[]) {//input parameters
                 exitWithError(errOut.str(),std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
             };
         };
+    };
+    const int streamedBAMs=(outBAMunsorted ? 1 : 0) + (quant.trSAM.bamYes ? 1 : 0);
+    if (streamedBAMs>0 && outBAMcompressionThreads>0
+            && outBAMcompressionThreads>=runThreadN-streamedBAMs) {
+        ostringstream errOut;
+        errOut << "EXITING: --outBAMcompressionThreads=" << outBAMcompressionThreads
+               << " plus " << streamedBAMs << " BGZF writer helper(s) must leave at least one of --runThreadN="
+               << runThreadN << " threads for mapping\n";
+        exitWithError(errOut.str(), std::cerr, inOut->logMain, EXIT_CODE_PARAMETER, *this);
     };
     //these may be set in STARsolo or in SAM attributes
     quant.geneFull.yes=false;

@@ -4,9 +4,9 @@
 #include "ErrorWarning.h"
 #include "serviceFuns.cpp"
 
-Transcriptome::Transcriptome (Parameters &Pin) : P(Pin){
+Transcriptome::Transcriptome (Parameters &Pin, bool load) : P(Pin){
 
-    if (!P.quant.yes)
+    if (!P.quant.yes || !load)
         return;
 
     if (!P.pGe.transform.outQuant) {//standard
@@ -66,11 +66,6 @@ Transcriptome::Transcriptome (Parameters &Pin) : P(Pin){
         for (uint32 iex=0; iex<nEx; iex++) {
             exinfo >> exSE[2*iex] >> exSE[2*iex+1] >> exLenCum[iex]; //reading all elements one after another
         };
-        for (uint32 ii=0;ii<nTr;ii++) {
-            uint32 iex1=trExI[ii]+trExN[ii]-1; //last exon of the transcript
-            trLen[ii]=exLenCum[iex1]+exSE[2*iex1+1]-exSE[2*iex1]+1;
-        };
-        
         P.inOut->logMain << "Loaded exon database, nEx="<<nEx<<endl;
         exinfo.close();
     };
@@ -90,11 +85,6 @@ Transcriptome::Transcriptome (Parameters &Pin) : P(Pin){
             exG.str[ii] = (uint8) str1;
         };
         exinfo.close();
-        //calculate eMax
-        exG.eMax[0]=exG.e[0];
-        for (uint iex=1;iex<exG.nEx;iex++) {
-            exG.eMax[iex]=max(exG.eMax[iex-1],exG.e[iex]);
-        };
     };
 
     if ( P.quant.geneFull.yes || P.quant.geneFull_ExonOverIntron.yes ) {
@@ -120,7 +110,27 @@ Transcriptome::Transcriptome (Parameters &Pin) : P(Pin){
             geneFull.str[g1] = (uint8) str1;
         };
         exinfo.close();
+    };
 
+    initialize();
+};
+
+void Transcriptome::initialize() {
+    if ( P.quant.trSAM.yes || P.quant.gene.yes || P.quant.geneFull_Ex50pAS.yes || P.personalizationTranscriptFasta=="Yes" ) {
+        for (uint32 ii=0;ii<nTr;ii++) {
+            uint32 iex1=trExI[ii]+trExN[ii]-1; //last exon of the transcript
+            trLen[ii]=exLenCum[iex1]+exSE[2*iex1+1]-exSE[2*iex1]+1;
+        };
+    };
+
+    if (P.quant.geCount.yes) {
+        exG.eMax[0]=exG.e[0];
+        for (uint iex=1;iex<exG.nEx;iex++) {
+            exG.eMax[iex]=max(exG.eMax[iex-1],exG.e[iex]);
+        };
+    };
+
+    if ( P.quant.geneFull.yes || P.quant.geneFull_ExonOverIntron.yes ) {
         uint64 *gF=new uint64 [4*nGe];
         for (uint ii=0;ii<nGe;ii++) {
             gF[4*ii]   = geneFull.s[ii];
@@ -144,7 +154,6 @@ Transcriptome::Transcriptome (Parameters &Pin) : P(Pin){
             geneFull.eMax[iex]=max(geneFull.eMax[iex-1],geneFull.e[iex]);
         };
     };
-
 };
 
 void Transcriptome::quantsAllocate() {

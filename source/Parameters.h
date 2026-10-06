@@ -51,6 +51,9 @@ class Parameters {
         //genome
         char genomeNumToNT[6];
         ParametersGenome pGe, pGeOut;
+        string personalizationVcf, personalizationSample;
+        vector<string> personalizationHaploidContigs, personalizationSkipAnnotationContigs, personalizationExcludeContigs;
+        string personalizationOutputPrefix, personalizationTranscriptFasta;
 
         //binning,windows,anchors
         uint winBinChrNbits, winBinNbits, winAnchorDistNbins, winFlankNbins, winBinN;
@@ -169,7 +172,7 @@ class Parameters {
         struct {bool NH,HI,AS,NM,MD,nM,jM,jI,RG,XS,rB,vG,vA,vW,ha,ch,MC,CR,CY,UR,UY,CB,UB,GX,GN,gx,gn,sM,sS,sQ,cN,sF;} outSAMattrPresent, outSAMattrPresentQuant;
 
         vector <int> outSAMattrOrder, outSAMattrOrderQuant;
-        int outBAMcompression;
+        int outBAMcompression, outBAMcompressionThreads;
         vector <string> outSAMtype;
         bool outBAMunsorted, outBAMcoord, outSAMbool;
         uint32 outBAMcoordNbins;

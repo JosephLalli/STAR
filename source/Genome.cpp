@@ -36,6 +36,7 @@ void Genome::freeMemory(){//free big chunks of memory used by genome and suffix 
         delete[] G1;
         G1=NULL;
         SA.deallocateArray();
+        SApass1.deallocateArray();
         SApass2.deallocateArray();
         SAi.deallocateArray();
 
@@ -230,5 +231,11 @@ void Genome::genomeSequenceAllocate(uint64 nGenomeIn, uint64 &nG1allocOut, char*
     G1out=new char[nG1allocOut];
     Gout=G1out+100;
 
-    memset(G1out,GENOME_spacingChar,nG1allocOut);//initialize to K-1 all bytes
+    #pragma omp parallel num_threads(P.runThreadN)
+    {//initialize disjoint ranges to K-1 before the genome is read
+        uint64 chunkSize=nG1allocOut/omp_get_num_threads();
+        uint64 start=chunkSize*omp_get_thread_num();
+        uint64 end=omp_get_thread_num()+1==omp_get_num_threads() ? nG1allocOut : start+chunkSize;
+        memset(G1out+start,GENOME_spacingChar,end-start);
+    };
 };
