@@ -138,25 +138,16 @@ void sjdbBuildIndex (Parameters &P, char *Gsj, char *G, PackedArray &SA, PackedA
     oldSAin.close();
     */
 
-    uint isj=0, isa2=0;
-    for (uint isa=0;isa<mapGen1.nSA;isa++) {
-        while (isa==indArray[isj*2]) {//insert sj index before the existing index
-            uint ind1=indArray[isj*2+1];
-            if (ind1<nGsj) {
-                ind1+=mapGen.chrStart[mapGen.nChrReal];
-            } else {//reverse strand
-                ind1=(ind1-nGsj) | N2bit;
-            };
-            SA2.writePacked(isa2,ind1);
-            /*testing
-            if (SA2[isa2]!=SAo[isa2]) {
-               cout <<isa2 <<" "<< SA2[isa2]<<" "<<SAo[isa2]<<endl;
-               //sleep(100);
-            };
-            */
-            ++isa2; ++isj;
+    auto newIndexValue = [&](uint isj) {
+        uint ind1=indArray[isj*2+1];
+        if (ind1<nGsj) {
+            ind1+=mapGen.chrStart[mapGen.nChrReal];
+        } else {//reverse strand
+            ind1=(ind1-nGsj) | N2bit;
         };
-
+        return ind1;
+    };
+    auto oldIndexValue = [&](uint isa) {
         uint ind1=SA[isa];
         if ( (ind1 & N2bit)>0 )
         {//- strand
@@ -178,32 +169,114 @@ void sjdbBuildIndex (Parameters &P, char *Gsj, char *G, PackedArray &SA, PackedA
                 ind1 += (oldSJind[sj1]-sj1)*mapGen.sjdbLength;
             };
         };
-
-        SA2.writePacked(isa2,ind1);
-            /*testing
-            if (SA2[isa2]!=SAo[isa2]) {
-               cout <<isa2 <<" "<< SA2[isa2]<<" "<<SAo[isa2]<<endl;
-               //sleep(100);
-            };
-            */
-        ++isa2;
+        return ind1;
     };
 
-    for (;isj<nInd;isj++) {//insert last new indices after the last old index
-        uint ind1=indArray[isj*2+1];
-        if (ind1<nGsj) {
-            ind1+=mapGen.chrStart[mapGen.nChrReal];
-        } else {//reverse strand
-            ind1=(ind1-nGsj) | N2bit;
+    // SA is a tail view of the allocation whose prefix SA2 receives. At every
+    // eight-entry boundary, the output ends on a byte boundary. If the source
+    // starts at least ceil(nInd*wordLength/8) bytes later, that frontier cannot
+    // reach the first unread old entry: at most nInd new entries precede it.
+    // Gather each bounded window completely before writing any of its bytes.
+    const uintptr_t sourceAddress=reinterpret_cast<uintptr_t>(SA.charArray);
+    const uintptr_t outputAddress=reinterpret_cast<uintptr_t>(SA2.charArray);
+    const uint insertionBytes=nInd/8*SA2.wordLength+(nInd%8*SA2.wordLength+7)/8;
+    const bool forwardSource=sourceAddress>=outputAddress;
+    const uint sourceOffset=forwardSource ? sourceAddress-outputAddress : 0;
+    const bool parallelMerge=P.runMode!="genomeGenerate" && P.runThreadN>1
+            && forwardSource && sourceOffset>=insertionBytes && mapGen.nSA>=8;
+
+    if (parallelMerge) {
+        const uint entriesPerGroup=8;
+        const uint fullEntries=mapGen.nSA/entriesPerGroup*entriesPerGroup;
+        const uint windowCapacity=(1LLU<<29)/sizeof(uint);
+        const uint windowEntries=min(fullEntries,windowCapacity);
+        uint *mergeScratch=new uint[windowEntries];
+
+        auto insertionPoint = [&](uint isj) {
+            return min(indArray[isj*2],mapGen1.nSA);
         };
-        SA2.writePacked(isa2,ind1);
-            /*testing
-            if (SA2[isa2]!=SAo[isa2]) {
-               cout <<isa2 <<" "<< SA2[isa2]<<" "<<SAo[isa2]<<endl;
-               //sleep(100);
+        auto insertedBefore = [&](uint outputRank) {
+            uint low=0, high=nInd;
+            while (low<high) {
+                const uint middle=low+(high-low)/2;
+                if (insertionPoint(middle)+middle<outputRank) {
+                    low=middle+1;
+                } else {
+                    high=middle;
+                };
             };
-            */
-        ++isa2;
+            return low;
+        };
+
+        for (uint windowBegin=0; windowBegin<fullEntries; windowBegin+=windowEntries) {
+            const uint windowEnd=min(fullEntries,windowBegin+windowEntries);
+            const uint windowGroups=(windowEnd-windowBegin)/entriesPerGroup;
+            const uint targetChunks=P.runThreadN*8;
+            const uint groupsPerChunk=(windowGroups+targetChunks-1)/targetChunks;
+            const int64 chunkCount=(windowGroups+groupsPerChunk-1)/groupsPerChunk;
+
+            #pragma omp parallel for schedule(static) num_threads(P.runThreadN)
+            for (int64 chunk=0; chunk<chunkCount; ++chunk) {
+                const uint outputBegin=windowBegin+(uint)chunk*groupsPerChunk*entriesPerGroup;
+                const uint outputEnd=min(windowEnd,outputBegin+groupsPerChunk*entriesPerGroup);
+                uint isj=insertedBefore(outputBegin);
+                uint isa=outputBegin-isj;
+                for (uint output=outputBegin; output<outputEnd; ++output) {
+                    if (isj<nInd && insertionPoint(isj)==isa) {
+                        mergeScratch[output-windowBegin]=newIndexValue(isj++);
+                    } else {
+                        mergeScratch[output-windowBegin]=oldIndexValue(isa++);
+                    };
+                };
+            };
+
+            #pragma omp parallel for schedule(static) num_threads(P.runThreadN)
+            for (int64 group=0; group<(int64)windowGroups; ++group) {
+                uint128 buffer=0;
+                uint bufferBits=0;
+                char *output=SA2.charArray+(windowBegin/entriesPerGroup+(uint)group)*SA2.wordLength;
+                uint outputByte=0;
+                for (uint entry=0; entry<entriesPerGroup; ++entry) {
+                    buffer|=(uint128)mergeScratch[(uint)group*entriesPerGroup+entry]<<bufferBits;
+                    bufferBits+=SA2.wordLength;
+                    while (bufferBits>=8) {
+                        output[outputByte++]=(char)(buffer&0xff);
+                        buffer>>=8;
+                        bufferBits-=8;
+                    };
+                };
+            };
+        };
+
+        uint tailValues[8];
+        uint isj=insertedBefore(fullEntries);
+        uint isa=fullEntries-isj;
+        for (uint output=fullEntries; output<mapGen.nSA; ++output) {
+            if (isj<nInd && insertionPoint(isj)==isa) {
+                tailValues[output-fullEntries]=newIndexValue(isj++);
+            } else {
+                tailValues[output-fullEntries]=oldIndexValue(isa++);
+            };
+        };
+        for (uint output=fullEntries; output<mapGen.nSA; ++output)
+            SA2.writePacked(output,tailValues[output-fullEntries]);
+        delete [] mergeScratch;
+    } else {
+        uint isj=0, isa2=0;
+        for (uint isa=0;isa<mapGen1.nSA;isa++) {
+            while (isa==indArray[isj*2]) {//insert sj index before the existing index
+                SA2.writePacked(isa2,newIndexValue(isj));
+                ++isa2; ++isj;
+            };
+
+            SA2.writePacked(isa2,oldIndexValue(isa));
+            ++isa2;
+        };
+
+        for (;isj<nInd;isj++) {//insert last new indices after the last old index
+            SA2.writePacked(isa2,newIndexValue(isj));
+            ++isa2;
+        };
     };
 
     time ( &rawtime );
