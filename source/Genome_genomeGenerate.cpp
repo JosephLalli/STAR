@@ -206,17 +206,20 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
     };
 
     //preparing to generate SA
-    for (uint ii=0;ii<nGenome;ii++) {//- strand
+    #pragma omp parallel for schedule(static) num_threads(P.runThreadN)
+    for (int64 ii=0;ii<(int64)nGenome;ii++) {//- strand
         //if (G[ii]>5)
         //    cerr << ii <<" "<< G[ii]<<"\n";
         G[2*nGenome-1-ii]=G[ii]<4 ? 3-G[ii] : G[ii];
     };   
-    nSA=0;
-    for (uint ii=0;ii<2*nGenome;ii+=pGe.gSAsparseD) {
+    uint64 suffixCount=0;
+    #pragma omp parallel for schedule(static) num_threads(P.runThreadN) reduction(+:suffixCount)
+    for (int64 ii=0;ii<(int64)(2*nGenome);ii+=(int64)pGe.gSAsparseD) {
         if (G[ii]<4) {
-            nSA++;
+            suffixCount++;
         };
     };
+    nSA=suffixCount;
 
     // GstrandBit
     GstrandBit = (char) (uint) floor(log(nGenome+P.limitSjdbInsertNsj*sjdbLength)/log(2))+1; //GstrandBit uses P.limitSjdbInsertNsj even if no insertion requested, in case it will be requested at the mapping stage
