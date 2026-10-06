@@ -194,11 +194,12 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
     //output genome metadata
     if (genomeGenerateWriteFiles) writeChrInfo(pGe.gDir);
 
-    // Exporters read G; finish before suffix preparation changes or replaces it.
+    // Native sorting changes forward bases; libsais keeps them stable until it returns.
     if (personalizedInput) {
         try {
             personalizedInput->startTranscriptOutput(*this);
-            personalizedInput->finishOutputs();
+            if (pGe.gGenerateMethod!="libsais")
+                personalizedInput->finishOutputs();
         } catch (const std::exception &error) {
             exitWithError("EXITING because personalized output failed: " + string(error.what()) + "\n",
                           std::cerr,P.inOut->logMain,EXIT_CODE_FILE_WRITE,P);
@@ -206,17 +207,21 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
     };
 
     //preparing to generate SA
-    for (uint ii=0;ii<nGenome;ii++) {//- strand
+    const int generateThreadN=personalizedInput ? personalizedInput->availableThreads() : P.runThreadN;
+    #pragma omp parallel for schedule(static) num_threads(generateThreadN)
+    for (int64 ii=0;ii<(int64)nGenome;ii++) {//- strand
         //if (G[ii]>5)
         //    cerr << ii <<" "<< G[ii]<<"\n";
         G[2*nGenome-1-ii]=G[ii]<4 ? 3-G[ii] : G[ii];
     };   
-    nSA=0;
-    for (uint ii=0;ii<2*nGenome;ii+=pGe.gSAsparseD) {
+    uint64 suffixCount=0;
+    #pragma omp parallel for schedule(static) num_threads(generateThreadN) reduction(+:suffixCount)
+    for (int64 ii=0;ii<(int64)(2*nGenome);ii+=(int64)pGe.gSAsparseD) {
         if (G[ii]<4) {
-            nSA++;
+            suffixCount++;
         };
     };
+    nSA=suffixCount;
 
     // GstrandBit
     GstrandBit = (char) (uint) floor(log(nGenome+P.limitSjdbInsertNsj*sjdbLength)/log(2))+1; //GstrandBit uses P.limitSjdbInsertNsj even if no insertion requested, in case it will be requested at the mapping stage
@@ -246,6 +251,14 @@ void Genome::genomeGenerate(SjdbClass *junctions) {
     bool junctionsInSort=false;
     if (pGe.gGenerateMethod=="libsais") {
         junctionsInSort=genomeGenerateSA(sjdbLoci);
+        if (personalizedInput) {
+            try {
+                personalizedInput->finishOutputs();
+            } catch (const std::exception &error) {
+                exitWithError("EXITING because personalized output failed: " + string(error.what()) + "\n",
+                              std::cerr,P.inOut->logMain,EXIT_CODE_FILE_WRITE,P);
+            };
+        };
     } else {//sort SA chunks
 
         for (uint ii=0;ii<nGenome;ii++) {//re-fill the array backwards for sorting
