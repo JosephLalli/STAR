@@ -1,4 +1,5 @@
 #include "Genome.h"
+#include "PersonalizedInput.h"
 #include "ErrorWarning.h"
 #include "SjdbClass.h"
 #include "sjdbPrepare.h"
@@ -9,6 +10,7 @@
 
 bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
 {
+    const int generateThreadN=personalizedInput ? personalizedInput->availableThreads() : P.runThreadN;
     const uint16 byteOrder=1;
     if (pGe.gTypeString!="Full" || pGe.gSAsparseD!=1
             || pGe.gSuffixLengthMax!=numeric_limits<uint>::max() || nChrReal>125
@@ -183,13 +185,16 @@ bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
         exitWithError("EXITING because the libsais constructor could not allocate its suffix array\n",
                       std::cerr,P.inOut->logMain,EXIT_CODE_MEMORY_ALLOCATION,P);
     };
+    #pragma omp parallel for schedule(static) num_threads(generateThreadN)
+    for (size_t ii=0; ii<rawSABytes; ii+=4096)
+        static_cast<char*>(rawSAMapping)[ii]=0;
     auto rawSADeleter = [rawSABytes](int64_t *pointer) {
         if (pointer!=NULL)
             (void)munmap(pointer,rawSABytes);
     };
     unique_ptr<int64_t[],decltype(rawSADeleter)> rawSA(
             static_cast<int64_t*>(rawSAMapping),rawSADeleter);
-    const int64_t result=libsais64_omp(text,rawSA.get(),textLength,0,NULL,P.runThreadN);
+    const int64_t result=libsais64_omp(text,rawSA.get(),textLength,0,NULL,generateThreadN);
     if (nGsj==0) {
         for (uint ii=0; ii<nChrReal; ++ii) {
             G[chrStart[ii]+chrLength[ii]]=GENOME_spacingChar;
@@ -248,11 +253,11 @@ bool Genome::genomeGenerateSA(SjdbClass &sjdbLoci)
     };
     for (uint groupBegin=0; groupBegin<groups; groupBegin+=groupsPerBlock) {
         const uint groupEnd=groupBegin+min(groupsPerBlock,groups-groupBegin);
-        if (P.runThreadN==1) {
+        if (generateThreadN==1) {
             for (uint ii=groupBegin*8; ii<groupEnd*8; ++ii)
                 SA.writePacked(ii,packedPosition(ii));
         } else {
-            #pragma omp parallel for num_threads(P.runThreadN) schedule(static)
+            #pragma omp parallel for num_threads(generateThreadN) schedule(static)
             for (int64 group=(int64)groupBegin; group<(int64)groupEnd; ++group) {
                 uint128 buffer=0;
                 uint bufferBits=0;
