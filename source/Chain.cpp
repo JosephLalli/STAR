@@ -68,7 +68,7 @@ void Chain::liftOverGTF(string gtfFileName, string outFileName)
         istringstream line1str(line1);
 
         string chr1;
-        line1str >> chr1;
+        getline(line1str,chr1,'\t');
 
         if (chr1=="" || chr1.substr(0,1)=="#")
             continue;//empty or comment line
@@ -79,7 +79,8 @@ void Chain::liftOverGTF(string gtfFileName, string outFileName)
         OneChain *ch1 = & chrChains[chr1];//the chain for the chr1
 
         string str1,str2;
-        line1str >> str1 >> str2;//fields 2,3
+        getline(line1str,str1,'\t');
+        getline(line1str,str2,'\t');//fields 2,3
 
         uint c1, c2[2]; //coordinates: 1/2 (old/new)
 
