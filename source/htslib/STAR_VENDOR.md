@@ -1,6 +1,6 @@
 # Bundled HTSlib subset
 
-HTSlib revision: `4a11e1ff234b2d6f2105ddccc4ac4c298f425522` (1.22 development).
+HTSlib revision: `36f20e7c1f0bd4d094c4e91836f757caef16475a` (released 1.22).
 HTScodecs revision: `ce66e5f303862aad325e4df908636a31c877b4d8` (1.6.3).
 Licenses: `LICENSE` and `htscodecs/LICENSE.md`.
 
