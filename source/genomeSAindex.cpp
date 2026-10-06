@@ -2,6 +2,148 @@
 #include "TimeFunctions.h"
 #include "SuffixArrayFuns.h"
 #include "ErrorWarning.h"
+#include <memory>
+
+namespace {
+
+struct IndexBoundary {
+    IndexBoundary() : firstIndex(-1), firstIsa(0), lastIndex(0), leadingN(false) {};
+    uint firstIndex, firstIsa, lastIndex;
+    bool leadingN;
+};
+
+void genomeSAindexParallel(char * G, PackedArray & SA, Parameters & P,
+                           PackedArray & SAi, Genome &mapGen)
+{
+    const uint levels=mapGen.pGe.gSAindexNbases;
+    const uint noIndex=-1;
+    const uint isaStep=mapGen.nSA/(1LLU<<(2*levels))+1;
+    const uint threads=min((uint)P.runThreadN,mapGen.nSA);
+    const uint span=(mapGen.nSA+threads-1)/threads;
+    unique_ptr<uint[]> stage(new uint[mapGen.nSAi]);
+    vector<uchar> marked((mapGen.nSAi+7)/8,0);
+    vector<IndexBoundary> boundaries(threads*levels);
+    int indexError=0;
+
+    #pragma omp parallel for num_threads((int)threads) schedule(static) reduction(|:indexError)
+    for (int64 thread=0; thread<(int64)threads; ++thread) {
+        const uint first=(uint)thread*span;
+        if (first>=mapGen.nSA)
+            continue;
+        const uint last=min(first+span,mapGen.nSA)-1;
+        uint isa=first;
+        int iL4;
+        uint indFull=funCalcSAiFromSA(G,SA,mapGen,isa,levels,iL4);
+        if (thread>0) {
+            int previousL4;
+            const uint previous=funCalcSAiFromSA(G,SA,mapGen,isa-1,levels,previousL4);
+            if (indFull==previous && iL4==previousL4) {
+                --isa;
+                funSAiFindNextIndex(G,SA,isaStep,isa,indFull,iL4,mapGen);
+            };
+        };
+
+        vector<uint> lastIndex(levels,noIndex);
+        IndexBoundary *boundary=&boundaries[(uint)thread*levels];
+        while (isa<=last) {
+            for (uint level=0; level<levels; ++level) {
+                const uint index=indFull>>(2*(levels-1-level));
+                if ((int)level==iL4) {
+                    for (uint jj=level; jj<levels; ++jj) {
+                        if (lastIndex[jj]==noIndex) {
+                            boundary[jj].leadingN=true;
+                        } else {
+                            const uint cell=mapGen.genomeSAindexStart[jj]+lastIndex[jj];
+                            #pragma omp atomic update
+                            marked[cell>>3]|=(uchar)(1u<<(cell&7));
+                        };
+                    };
+                    break;
+                };
+
+                if (lastIndex[level]==noIndex) {
+                    boundary[level].firstIndex=index;
+                    boundary[level].firstIsa=isa;
+                    lastIndex[level]=index;
+                } else if (index>lastIndex[level]) {
+                    stage[mapGen.genomeSAindexStart[level]+index]=isa;
+                    for (uint jj=lastIndex[level]+1; jj<index; ++jj)
+                        stage[mapGen.genomeSAindexStart[level]+jj]=isa|mapGen.SAiMarkAbsentMaskC;
+                    lastIndex[level]=index;
+                } else if (index<lastIndex[level]) {
+                    indexError=1;
+                };
+            };
+            funSAiFindNextIndex(G,SA,isaStep,isa,indFull,iL4,mapGen);
+        };
+        for (uint level=0; level<levels; ++level) {
+            if (lastIndex[level]!=noIndex)
+                boundary[level].lastIndex=lastIndex[level];
+        };
+    };
+
+    vector<uint> previous(levels,noIndex);
+    for (uint thread=0; thread<threads; ++thread) {
+        for (uint level=0; level<levels; ++level) {
+            const IndexBoundary &boundary=boundaries[thread*levels+level];
+            if (boundary.leadingN && previous[level]!=noIndex) {
+                const uint cell=mapGen.genomeSAindexStart[level]+previous[level];
+                marked[cell>>3]|=(uchar)(1u<<(cell&7));
+            };
+            if (boundary.firstIndex==noIndex)
+                continue;
+            if (previous[level]==noIndex || boundary.firstIndex>previous[level]) {
+                stage[mapGen.genomeSAindexStart[level]+boundary.firstIndex]=boundary.firstIsa;
+                const uint firstMissing=previous[level]==noIndex ? 0 : previous[level]+1;
+                for (uint jj=firstMissing; jj<boundary.firstIndex; ++jj)
+                    stage[mapGen.genomeSAindexStart[level]+jj]=boundary.firstIsa|mapGen.SAiMarkAbsentMaskC;
+            } else if (boundary.firstIndex<previous[level]) {
+                indexError=1;
+            };
+            previous[level]=boundary.lastIndex;
+        };
+    };
+    if (indexError!=0) {
+        exitWithError("BUG: next index is smaller than previous, EXITING\n",
+                      std::cerr,P.inOut->logMain,EXIT_CODE_INPUT_FILES,P);
+    };
+
+    for (uint level=0; level<levels; ++level) {
+        for (uint cell=mapGen.genomeSAindexStart[level]+previous[level]+1;
+             cell<mapGen.genomeSAindexStart[level+1]; ++cell)
+            stage[cell]=mapGen.nSA|mapGen.SAiMarkAbsentMaskC;
+    };
+
+    const uint groups=mapGen.nSAi/8;
+    #pragma omp parallel for num_threads((int)threads) schedule(static)
+    for (int64 group=0; group<(int64)groups; ++group) {
+        uint128 buffer=0;
+        uint bufferBits=0;
+        char *out=SAi.charArray+(uint)group*SAi.wordLength;
+        uint outByte=0;
+        for (uint entry=0; entry<8; ++entry) {
+            const uint cell=(uint)group*8+entry;
+            uint value=stage[cell];
+            if ((marked[cell>>3]>>(cell&7))&1u)
+                value|=mapGen.SAiMarkNmaskC;
+            buffer|=(uint128)value<<bufferBits;
+            bufferBits+=SAi.wordLength;
+            while (bufferBits>=8) {
+                out[outByte++]=(char)(buffer&0xff);
+                buffer>>=8;
+                bufferBits-=8;
+            };
+        };
+    };
+    for (uint cell=groups*8; cell<mapGen.nSAi; ++cell) {
+        uint value=stage[cell];
+        if ((marked[cell>>3]>>(cell&7))&1u)
+            value|=mapGen.SAiMarkNmaskC;
+        SAi.writePacked(cell,value);
+    };
+};
+
+}
 
 void genomeSAindex(char * G, PackedArray & SA, Parameters & P, PackedArray & SAi, Genome &mapGen)
  {
@@ -92,7 +234,21 @@ void genomeSAindex(char * G, PackedArray & SA, Parameters & P, PackedArray & SAi
     };//for (uint isa=0; isa<mapGen.nSA; isa++)
     */
 
-    genomeSAindexChunk(G, SA, P, SAi, 0, SA.length-1, mapGen);
+    uint64 remaining=P.limitGenomeGenerateRAM;
+    bool parallelMemory=mapGen.nG1alloc<=remaining;
+    if (parallelMemory) remaining-=mapGen.nG1alloc;
+    parallelMemory=parallelMemory && mapGen.SApass1.lengthByte<=remaining;
+    if (parallelMemory) remaining-=mapGen.SApass1.lengthByte;
+    parallelMemory=parallelMemory && SAi.lengthByte<=remaining;
+    if (parallelMemory) remaining-=SAi.lengthByte;
+    const uint64 temporaryBytes=mapGen.nSAi*sizeof(uint)+(mapGen.nSAi+7)/8;
+    parallelMemory=parallelMemory && temporaryBytes<=remaining;
+
+    if (mapGen.pGe.gGenerateMethod=="libsais" && P.runThreadN>1 && parallelMemory) {
+        genomeSAindexParallel(G,SA,P,SAi,mapGen);
+    } else {
+        genomeSAindexChunk(G, SA, P, SAi, 0, SA.length-1, mapGen);
+    };
 
     time(&rawTime);
     P.inOut->logMain    << timeMonthDayTime(rawTime) <<" ... completed Suffix Array index\n" <<flush;
