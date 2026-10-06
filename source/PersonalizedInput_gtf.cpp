@@ -197,7 +197,7 @@ void PersonalizedInput::fillGtfBatch()
         return;
     }
     vector<GtfResult> results(rawLines.size());
-    const int budget = max(1, requestedThreads-outputThreads.load());
+    const int budget = availableThreads();
     const int workers = min(budget, static_cast<int>(rawLines.size()));
     if (workers == 1) {
         for (size_t index = 0; index < rawLines.size(); ++index)

@@ -80,3 +80,8 @@ std::shared_ptr<PersonalizedInput> PersonalizedInput::build(Genome &genome)
         self->gtfOutput.path = personalizedOutputPath(self->outputPrefix, self->vcfSample, "gtf.gz");
     return self;
 }
+
+int PersonalizedInput::availableThreads() const
+{
+    return max(1, requestedThreads-outputThreads.load());
+}

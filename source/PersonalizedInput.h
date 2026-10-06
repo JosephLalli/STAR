@@ -27,6 +27,7 @@ public:
 
     void appendFasta(Genome &genome);
     bool nextGtfLine(string &line);
+    int availableThreads() const;
     void startTranscriptOutput(Genome &genome);
     // Join exporters before STAR mutates or replaces the genome buffer.
     void finishOutputs();
