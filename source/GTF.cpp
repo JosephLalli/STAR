@@ -42,7 +42,9 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
         getline(sjdbStreamIn,oneLine);
         istringstream oneLineStream (oneLine);
 
-        oneLineStream >> chr1 >> ddd2 >> featureType;
+        getline(oneLineStream,chr1,'\t');
+        getline(oneLineStream,ddd2,'\t');
+        getline(oneLineStream,featureType,'\t');
         if (chr1.substr(0,1)!="#" && featureType==genome.pGe.sjdbGTFfeatureExon) {
             exonN++;
         };
@@ -68,7 +70,9 @@ GTF::GTF(Genome &genome, Parameters &P, const string &dirOut, SjdbClass &sjdbLoc
         getline(sjdbStreamIn,oneLine);
         istringstream oneLineStream (oneLine);
 
-        oneLineStream >> chr1 >> ddd2 >> featureType;
+        getline(oneLineStream,chr1,'\t');
+        getline(oneLineStream,ddd2,'\t');
+        getline(oneLineStream,featureType,'\t');
         if (chr1.substr(0,1)!="#" && featureType==genome.pGe.sjdbGTFfeatureExon) {//exonic line, process
 
             if (genome.pGe.sjdbGTFchrPrefix!="-") chr1=genome.pGe.sjdbGTFchrPrefix + chr1;
